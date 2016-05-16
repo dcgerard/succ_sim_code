@@ -333,10 +333,43 @@ for (nullpi_index in 1:(length(nullpi_seq) - 1)) {
 
 
 summary_par_vals <- expand.grid(alt_type_seq[1:(length(alt_type_seq) - 1)], Nsamp_seq, nullpi_seq[1:(length(nullpi_seq) - 1)])
+names(summary_par_vals) <- c("alt_type", "Nsamp", "nullpi")
 
 
+list_index <- 1
 fpr <- ave_ft_list[[list_index]][[2]]
 tpr <- ave_ft_list[[list_index]][[1]]
 
-matplot(fpr, tpr, type = "l", lty = 1)
-abline(0, 1, lty = 2)
+temp_mat          <- cbind(melt(fpr)[, 2:3], melt(tpr)$value)
+temp_mat$nullpi   <- summary_par_vals$nullpi[list_index]
+temp_mat$Nsamp    <- summary_par_vals$Nsamp[list_index]
+temp_mat$alt_type <- summary_par_vals$alt_type[list_index]
+colnames(temp_mat) <- c("Method", "fpr", "tpr", "nullpi", "Nsamp", "alt_type")
+
+roc_mat <- temp_mat
+for (list_index in 2:nrow(summary_par_vals)) {
+    fpr <- ave_ft_list[[list_index]][[2]]
+    tpr <- ave_ft_list[[list_index]][[1]]
+
+    temp_mat          <- cbind(melt(fpr)[, 2:3], melt(tpr)$value)
+    temp_mat$nullpi   <- summary_par_vals$nullpi[list_index]
+    temp_mat$Nsamp    <- summary_par_vals$Nsamp[list_index]
+    temp_mat$alt_type <- summary_par_vals$alt_type[list_index]
+    colnames(temp_mat) <- c("Method", "fpr", "tpr", "nullpi", "Nsamp", "alt_type")
+
+    roc_mat <- rbind(roc_mat, temp_mat)
+}
+
+
+pdf(file = "./fig/ave_roc.pdf", height = 6, width = 9)
+for (current_alt_type in alt_type_seq[1:(length(alt_type_seq) - 1)]) {
+submat <- dplyr::filter(roc_mat, alt_type == current_alt_type)
+p <- ggplot(data = submat, mapping = aes(x = fpr, y = tpr, group = Method, color = Method)) +
+    facet_grid(nullpi~Nsamp) +
+    geom_abline(intercept = 0, slope = 1, lty = 2, alpha = 0.5) +
+    geom_line(alpha = I(0.7), size = I(0.3)) + xlab("FPR") + ylab("TPR") +
+    ggtitle(paste("Pointwise Mean ROC when Alt Type =", current_alt_type)) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+print(p)
+}
+dev.off()
