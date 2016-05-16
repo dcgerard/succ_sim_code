@@ -1,0 +1,76 @@
+---
+title: "Different Alternative Types"
+author: "David Gerard"
+date: "`r Sys.Date()`"
+output: rmarkdown::pdf_document
+bibliography: sva_bib.bib
+fig_caption: yes
+---
+
+
+
+# Abstract
+
+# Simulation Setup
+I ran through 200 repetitions of generating data from GTEX muscle data under the following parameter conditions:
+
+* $n \in \{10, 20, 40\}$,
+* $p = 1000$.
+* $\pi_0 \in \{0.5, 0.9\}$,
+* Alternative type being either spiky, near-normal, flattop, skew, big-normal, or bimodal, where these are the same alternatives defined in @stephens2016false.
+
+I extracted the most expressed $p$ genes from the GTEX muscle data and $n$ samples are chosen at
+random. Half of these samples are randomly given the ``treatment''
+label 1, the other half given the ``control'' label 0. Of the $p$
+genes, $\pi_0p$ were chosen to be non-null. Signal was added by a
+Poisson-thinning approach, where the log-2 fold change was sampled from one of five alternative models.
+$\sigma_{log2}$. That is
+\begin{align}
+  A_1,\ldots,A_{p/2} &\sim f\\
+  B_i &= 2^{A_i} \text{ for } i = 1,\ldots, p/2.
+\end{align}
+If $A_i > 0$ then we replace $Y_{[1:(n/2), i]}$ with $Binom(Y_{[j,i]}, 1 / B_i)$ for $j = 1,\ldots, n/2$. If $A_i < 0$ then we replace $Y_{[(n/2 + 1):n, i]}$ with $Binom(Y_{[j,i]}, B_i)$ for $j = n/2 + 1,\ldots, n$.
+
+I now describe the justification for this. Suppose that
+\begin{align}
+Y_{ij} \sim Poisson(\lambda_j).
+\end{align}
+I.e., each individual has the Poisson parameter for gene $j$. Let $x_{i}$ be the indicator of treatment vs control for individual $i$. Let $\Omega$ be the set of non-null genes. Let $Z$ be the new dataset derived via the steps above. That is
+\begin{align}
+Z_{ij} =
+\begin{cases}
+2 ^ {A_{j}x_i} Y_{ij} & \text{if } A_{j} < 0 \text{ and } j \in \Omega\\
+2 ^ {-A_{j}(1 - x_i)} Y_{ij} & \text{if } A_{j} > 0 \text{ and } j \in \Omega\\
+Y_{ij} & \text{if } j \not\in \Omega.
+\end{cases}
+\end{align}
+Then
+\begin{align}
+Z_{ij} | A_{j}, A_{j} < 0, j \in \Omega &\sim Poisson(2^{A_{j}x_i}\lambda_j)\\
+Z_{ij} | A_{j}, A_{j} > 0, j \in \Omega &\sim Poisson(2^{-A_{j}(1 - x_i)}\lambda_j),
+\end{align}
+and
+\begin{align}
+E[\log_2(Z_{ij}) - \log_2(Z_{kj}) | A_{j}, A_{j} < 0, j \in \Omega] &\approx A_{j}x_i - A_{j}x_k, \text{ and}\\
+E[\log_2(Z_{ij}) - \log_2(Z_{kj}) | A_{j}, A_{j} < 0, j \in \Omega] &\approx -A_{j}(1 - x_i) + A_{j}(1 - x_k).
+\end{align}
+if individual $i$ is in the treatment group and individual $k$ is in the control group, then this just equals $A_j$. I treat the $A_j$'s as the true coefficient values when calculating the MSE below.
+
+# Methods
+I first normalized the counts by $\log_2(COUNTS + 1)$. The number of hidden confounders was estimated using the methods of \cite{buja1992remarks} implemented in the \texttt{num.sv()} function in the \texttt{sva} package in \texttt{R}.
+
+The confounder adjustment methods I look at in this write-up are:
+
+* OLS + qvalue.
+* SUCCOTASH using normal mixtures and heteroscedastic PCA as the factor-analysis method.
+* The robust regression version of CATE using PCA as the factor analysis method + qvalue.
+* SVA + qvalue.
+* Negative control version of CATE using PCA as the factor analysis method + qvalue.
+* RUV2 + qvalue.
+* RUV4 + qvalue.
+* Sparse version of LEAPP
+* Ridge version of LEAPP
+
+```{r}
+sessionInfo()
+```

@@ -43,18 +43,19 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
     betahat_df$succotash <- succ_out$betahat
     lfdr_df$succotash    <- succ_out$lfdr
     pi0hat_vec           <- c(pi0hat_vec, succ_out$pi0)
+    succ_lfsr <- data.frame(normal = succ_out$lfsr)
 
     ## succotash-t---------------------------------------------------------
-    succ_out_t <- succotashr::succotash(Y = Y, X = X, k = num_sv,
-                                      fa_method = "pca", num_em_runs = 3,
-                                      likelihood = "t", mix_type = "uniform")
+    ## succ_out_t <- succotashr::succotash(Y = Y, X = X, k = num_sv,
+    ##                                   fa_method = "pca", num_em_runs = 3,
+    ##                                   likelihood = "t", mix_type = "uniform")
 
-    betahat_df$succotash_t <- succ_out_t$betahat
-    lfdr_df$succotash_t    <- succ_out_t$lfdr
-    pi0hat_vec             <- c(pi0hat_vec, succ_out_t$pi0)
+    ## betahat_df$succotash_t <- succ_out_t$betahat
+    ## lfdr_df$succotash_t    <- succ_out_t$lfdr
+    ## pi0hat_vec             <- c(pi0hat_vec, succ_out_t$pi0)
 
     ## lfsr data frame for succotash -------------------------------------
-    succ_lfsr <- data.frame(normal = succ_out$lfsr, t = succ_out_t$lfsr)
+    ## succ_lfsr <- data.frame(normal = succ_out$lfsr, t = succ_out_t$lfsr)
 
     ## RR CATE-----------------------------------------------------------
     ## error if only use one surrogate variable.

@@ -2,6 +2,7 @@ library(Rmpi)
 library(snow)
 
 one_rep <- function(new_params, current_params) {
+    start.time <- proc.time()
     source("../code/datamaker_only_counts.R")
     source("../code/fit_methods.R")
     args_val <- append(current_params, new_params)
@@ -26,11 +27,18 @@ one_rep <- function(new_params, current_params) {
     fit_out <- fit_all_competitors(Y = Y, X = X, num_sv = num_sv,
                                    control_genes = half_null)
 
+
+    fit_out$betahat_df$beta_true <- beta_true
+    fit_out$lfdr_df$which_null   <- which_null
+    fit_out$succ_lfsr$which_null <- which_null
+
+    tot.time <- proc.time() - start.time
+
     return(fit_out)
 }
 
 
-itermax <- 2
+itermax <- 200
 
 ## these change
 Nsamp_seq    <- c(5, 10, 20)
@@ -98,7 +106,7 @@ args_val              <- list()
 args_val$log2foldsd   <- 1
 args_val$tissue       <- "muscle"
 args_val$path         <- "../../../data/gtex_tissue_gene_reads/"
-args_val$Ngene        <- 100
+args_val$Ngene        <- 1000
 args_val$log2foldmean <- 0
 args_val$skip_gene    <- 0
 
@@ -107,6 +115,14 @@ library(parallel)
 cl <- makeCluster(detectCores()-1)
 sout <- parSapply(cl = cl, par_list, FUN = one_rep, current_params = args_val)
 stopCluster(cl)
+
+## ## on RCC, use this
+## np <- mpi.universe.size() - 1
+## cluster <- makeMPIcluster(np)
+## sout <- snow::parSapply(cl = cluster, X = par_list, FUN = one_rep, current_params = args_val)
+## stopCluster(cluster)
+## mpi.exit()
+
 
 betahat   <- sout[1, ]
 lfdr      <- sout[2, ]
@@ -118,21 +134,9 @@ save(lfdr, file = "lfdr_muscle.Rd")
 save(pi0hat, file = "pi0hat_muscle.Rd")
 save(succ_lfsr, file = "succ_lfsr_muscle.Rd")
 
-load("muscle_out.Rd")
-
-## ## on RCC, use this
-## np <- mpi.universe.size() - 1
-## cluster <- makeMPIcluster(np)
-## sout <- t(snow::parSapply(cl = cluster, X = par_list, FUN = one_rep, current_params = args_val))
-## stopCluster(cluster)
-## mpi.exit()
+write.csv(par_vals, file = "sim_settings.csv", row.names = FALSE)
 
 
-num_conds <- ncol(sout) / 3
-pi0_mat <- cbind(par_vals, sout[, 1:num_conds])
-mse_mat <- cbind(par_vals, sout[, (num_conds + 1):(2 * num_conds)])
-auc_mat <- cbind(par_vals, sout[, (2 * num_conds + 1):(3 * num_conds)])
-
-write.csv(pi0_mat, file = "pi0_mat.csv", row.names = FALSE)
-write.csv(mse_mat, file = "mse_mat.csv", row.names = FALSE)
-write.csv(auc_mat, file = "auc_mat.csv", row.names = FALSE)
+method_vec <- colnames(betahat[[1]])
+method_vec <- method_vec[-length(method_vec)]
+save(method_vec, file = "method_vec.Rd")
