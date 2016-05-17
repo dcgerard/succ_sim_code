@@ -165,6 +165,9 @@ get_svalue <- function(lfsr_vec) {
 
 svalue <- apply(lfsr, 2, get_svalue)
 
+##max_sval <- apply(svalue, 2, max)
+##hist(max_sval)
+
 overall_mat <- rbind(svalue, sign_betahat, sign_beta)
 
 fsp <- as.data.frame(t(apply(overall_mat, 2, FUN = lfsr_curve_concat)))
@@ -259,7 +262,7 @@ for (alt_type_index in 1:length(alt_type_seq)) {
 
     long_dat <- melt(auc_mat_sub, id.vars = c("nullpi", "Nsamp"))
     p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
-    p <- p + facet_grid(nullpi~Nsamp) + ylab(expression(hat(pi)[0]))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("AUC")
     p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
     p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
     p <- p + geom_hline(data = dummy_dat2, aes(yintercept = max_med), lty = 2,
@@ -371,5 +374,44 @@ p <- ggplot(data = submat, mapping = aes(x = fpr, y = tpr, group = Method, color
     ggtitle(paste("Pointwise Mean ROC when Alt Type =", current_alt_type)) +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
 print(p)
+}
+dev.off()
+
+
+## mse plots -----------------------------------------------------------------------------
+rm(list = ls())
+load("betahat_muscle.Rd")
+par_vals <- read.csv("sim_settings.csv")
+
+
+get_mse <- function(beta_mat) {
+    which_betatrue <- which(colnames(beta_mat) == "beta_true")
+    return(colMeans((beta_mat$beta_true - beta_mat[, -which_betatrue]) ^ 2))
+}
+
+mse_mat          <- as.data.frame(t(sapply(betahat, get_mse)))
+colnames(mse_mat) <- colnames(betahat[[1]])[1:(length(betahat[[1]]) - 1)]
+mse_mat$nullpi   <- par_vals$nullpi
+mse_mat$Nsamp    <- par_vals$Nsamp
+mse_mat$alt_type <- par_vals$alt_type
+alt_type_seq     <- unique(mse_mat$alt_type)
+
+pdf(file = "./fig/mse.pdf")
+for (alt_type_index in 1:length(alt_type_seq)) {
+    current_alt_type <- alt_type_seq[alt_type_index]
+
+    mse_mat_sub <- mse_mat[mse_mat$alt_type == current_alt_type,]
+    ymax <- quantile(c(as.matrix(dplyr::select(mse_mat_sub, -c(nullpi, Nsamp, alt_type)))),
+             0.999, na.rm = TRUE)
+    mse_mat_sub <- dplyr::select(mse_mat_sub, -alt_type)
+    long_dat <- melt(mse_mat_sub, id.vars = c("nullpi", "Nsamp"))
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("MSE")
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + ggtitle(paste("MSE When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index])) +
+        ylim(0, ymax)
+    print(p)
 }
 dev.off()

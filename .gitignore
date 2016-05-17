@@ -3,5 +3,9 @@
 *~
 *.Rd
 *.Rhistory
+*.RData
+*.rdb
+*.rdx
+*__packages
 \#*
 .#*
