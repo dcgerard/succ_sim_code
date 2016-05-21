@@ -19,17 +19,11 @@ one_rep <- function(new_params, current_params) {
     colnames(X) <- c("Intercept", "Treatment")
     Y <- t(log2(as.matrix(d_out$input$counts + 1)))
 
-    num_sv <- sva::num.sv(t(Y), mod = X, method = "be")
-
-
-    ## OLS-----------------------------------------------------------------
-    ols_fit <- get_ols(log_counts = t(Y), condition = X[, 2])
-
     ## OLS + ASH ---------------------------------------------------------
-    ash_ols <- ashr::ash(betahat = ols_fit$betahat, sebetahat = ols_fit$sebetahat)
-    betahat_df <- data.frame(ash = ash_ols$PosteriorMean)
-    lfdr_df <- data.frame(ash = ash_ols$lfdr)
-    pi0hat_vec <- ash_ols$fitted.g$pi[1]
+    ash_ruv_out <- ashr::ash_ruv(Y = Y, X = X, ctl = as.logical(half_null))
+    betahat_df <- data.frame(ash = ash_ruv_out$PosteriorMean)
+    lfdr_df <- data.frame(ash = ash_ruv_out$lfdr)
+    pi0hat_vec <- ash_ruv_out$fitted.g$pi[1]
 
     fit_out <- list()
     fit_out$betahat_df <- betahat_df

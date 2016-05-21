@@ -176,6 +176,10 @@ default_datamaker_args <- function(args) {
         args$alt_type <- "normal"
     }
 
+    if (is.null(args$log2fold_inflate_beta)) {
+        args$log2fold_inflate_beta <- 1
+    }
+
     return(args)
 }
 
@@ -210,6 +214,8 @@ pois_thinning <- function(counts, args, null) {
                                         p = sum(!null))
             cat("yay!\n")
         }
+        log2foldchanges <- log2foldchanges * args$log2fold_inflate_beta ## inflation defaults to 1.
+
         foldchanges <- 2 ^ log2foldchanges
 
         ## thin group A

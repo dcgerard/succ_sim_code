@@ -20,30 +20,63 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
 
     pi0hat_vec <- c()
 
-    ## OLS-----------------------------------------------------------------
-    ols_fit <- get_ols(log_counts = t(Y), condition = X[, 2])
-    ols_out <- fit_freq_methods(out_obj = ols_fit)
 
-    betahat_df <- data.frame(ols = ols_fit$betahat)
-    lfdr_df    <- data.frame(ols = ols_out$q_storey$lfdr)
-    pi0hat_vec <- c(pi0hat_vec, ols_out$q_storey$pi0)
+    trash <- tryCatch({
+        ## OLS-----------------------------------------------------------------
+        ols_fit <- get_ols(log_counts = t(Y), condition = X[, 2])
+        ols_out <- fit_freq_methods(out_obj = ols_fit)
 
-    ## OLS + ASH ---------------------------------------------------------
-    ## ash_ols <- fit_ash(ols_fit)
-    ## betahat_df$ols_ash <- ash_ols$PosteriorMean
-    ## lfdr_df$ols_ash <- ash_ols$lfdr
-    ## pi0hat_vec <- c(pi0hat_vec, ash_ols$fitted.g$pi[1])
+        betahat_df <- data.frame(ols = ols_fit$betahat)
+        lfdr_df    <- data.frame(ols = ols_out$q_storey$lfdr)
+        pi0hat_vec <- c(pi0hat_vec, ols_out$q_storey$pi0)
+        TRUE
+    },
+    error = function(e){NULL})
+    if (is.null(trash)) {
+        betahat_df <- data.frame(ols = rep(NA, length = ncol(Y)))
+        lfdr_df    <- data.frame(ols = rep(NA, length = ncol(Y)))
+        pi0hat_vec <- c(pi0hat_vec, NA)
+    }
+    trash <- TRUE
+
+    trash <- tryCatch({
+        ## OLS + ASH ---------------------------------------------------------
+        ash_ols <- ashr::ash(betahat = ols_fit$betahat, sebetahat = ols_fit$sebetahat)
+        betahat_df$ols_ash <- ash_ols$PosteriorMean
+        lfdr_df$ols_ash <- ash_ols$lfdr
+        pi0hat_vec <- c(pi0hat_vec, ash_ols$fitted.g$pi[1])
+        TRUE
+    },
+    error = function(e){NULL})
+    if (is.null(trash)) {
+        betahat_df$ols_ash <- rep(NA, length = ncol(Y))
+        lfdr_df$ols_ash    <- rep(NA, length = ncol(Y))
+        pi0hat_vec         <- c(pi0hat_vec, NA)
+    }
+    trash <- TRUE
 
 
-    ## succotash---------------------------------------------------------
-    succ_out <- succotashr::succotash(Y = Y, X = X, k = num_sv,
-                                      fa_method = "pca", num_em_runs = 3,
-                                      optmethod = "em")
 
-    betahat_df$succotash <- succ_out$betahat
-    lfdr_df$succotash    <- succ_out$lfdr
-    pi0hat_vec           <- c(pi0hat_vec, succ_out$pi0)
-    succ_lfsr <- data.frame(normal = succ_out$lfsr)
+    trash <- tryCatch({
+        ## succotash---------------------------------------------------------
+        succ_out <- succotashr::succotash(Y = Y, X = X, k = num_sv,
+                                          fa_method = "pca", num_em_runs = 3,
+                                          optmethod = "em")
+
+        betahat_df$succotash <- succ_out$betahat
+        lfdr_df$succotash    <- succ_out$lfdr
+        pi0hat_vec           <- c(pi0hat_vec, succ_out$pi0)
+        succ_lfsr            <- data.frame(normal = succ_out$lfsr)
+        TRUE
+    },
+    error = function(e){NULL})
+    if (is.null(trash)) {
+        betahat_df$succotash <- rep(NA, length = ncol(Y))
+        lfdr_df$succotash    <- rep(NA, length = ncol(Y))
+        pi0hat_vec           <- c(pi0hat_vec, NA)
+        succ_lfsr            <- data.frame(normal = rep(NA, length = ncol(Y)))
+    }
+    trash <- TRUE
 
     ## succotash-t---------------------------------------------------------
     ## succ_out_t <- succotashr::succotash(Y = Y, X = X, k = num_sv,
@@ -57,22 +90,36 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
     ## lfsr data frame for succotash -------------------------------------
     ## succ_lfsr <- data.frame(normal = succ_out$lfsr, t = succ_out_t$lfsr)
 
-    ## RR CATE-----------------------------------------------------------
-    ## error if only use one surrogate variable.
-    cate_rr <- cate::cate(~Treatment, Y = Y,
-                          X.data = data.frame(Treatment = X[, 2]),
-                          r = max(num_sv, 2), fa.method = "pc", adj.method = "rr",
-                          calibrate = FALSE)
-    cate_rr_out           <- list()
-    cate_rr_out$betahat   <- cate_rr$beta
-    cate_rr_out$sebetahat <- sqrt(cate_rr$beta.cov.row * cate_rr$beta.cov.col) / sqrt(nrow(X))
-    cate_rr_out$pvalue    <- cate_rr$beta.p.value
-    cate_qv               <- fit_freq_methods(out_obj = cate_rr_out)
 
-    betahat_df$cate_rr <- cate_rr_out$betahat
-    lfdr_df$cate_rr    <- cate_qv$q_storey$lfdr
-    pi0hat_vec         <- c(pi0hat_vec, cate_qv$q_storey$pi0)
+    trash <- tryCatch({
+        ## RR CATE-----------------------------------------------------------
+        ## error if only use one surrogate variable.
+        num_sv_cate <- max(num_sv, 2)
+        if (nrow(Y) - num_sv_cate - ncol(X) <= 0) {
+            num_sv_cate <- 0
+        }
+        cate_rr <- cate::cate(~Treatment, Y = Y,
+                              X.data = data.frame(Treatment = X[, 2]),
+                              r = num_sv_cate, fa.method = "pc", adj.method = "rr",
+                              calibrate = FALSE)
+        cate_rr_out           <- list()
+        cate_rr_out$betahat   <- cate_rr$beta
+        cate_rr_out$sebetahat <- sqrt(cate_rr$beta.cov.row * cate_rr$beta.cov.col) / sqrt(nrow(X))
+        cate_rr_out$pvalue    <- cate_rr$beta.p.value
+        cate_qv               <- fit_freq_methods(out_obj = cate_rr_out)
 
+        betahat_df$cate_rr <- cate_rr_out$betahat
+        lfdr_df$cate_rr    <- cate_qv$q_storey$lfdr
+        pi0hat_vec         <- c(pi0hat_vec, cate_qv$q_storey$pi0)
+        TRUE
+    },
+    error = function(e){NULL})
+    if (is.null(trash)) {
+        betahat_df$cate_rr <- rep(NA, length = ncol(Y))
+        lfdr_df$cate_rr    <- rep(NA, length = ncol(Y))
+        pi0hat_vec         <- c(pi0hat_vec, NA)
+    }
+    trash <- TRUE
     ## RR CATE + ASH ----------------------------------------------------
     ## ash_rr_cate <- fit_ash(cate_rr_out)
     ## betahat_df$cate_rr_ash <- ash_rr_cate$PosteriorMean
@@ -137,35 +184,55 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
     }
 
 
-    ## SVA----------------------------------------------------------------
-    trash      <- capture.output(sva_out <- sva::sva(dat = t(Y), mod = X, n.sv = num_sv))
-    X.sv       <- cbind(X, sva_out$sv)
-    sva_ols    <- get_ols(log_counts = t(Y), condition = X.sv[, -1])
-    sva_ols_qv <- fit_freq_methods(out_obj = sva_ols)
+    trash <- tryCatch({
+        ## SVA----------------------------------------------------------------
+        trash      <- capture.output(sva_out <- sva::sva(dat = t(Y), mod = X, n.sv = num_sv))
+        X.sv       <- cbind(X, sva_out$sv)
+        sva_ols    <- get_ols(log_counts = t(Y), condition = X.sv[, -1])
+        sva_ols_qv <- fit_freq_methods(out_obj = sva_ols)
 
-    betahat_df$sva_ols <- sva_ols$betahat
-    lfdr_df$sva_ols    <- sva_ols_qv$q_storey$lfdr
-    pi0hat_vec         <- c(pi0hat_vec, sva_ols_qv$q_storey$pi0)
+        betahat_df$sva_ols <- sva_ols$betahat
+        lfdr_df$sva_ols    <- sva_ols_qv$q_storey$lfdr
+        pi0hat_vec         <- c(pi0hat_vec, sva_ols_qv$q_storey$pi0)
+        TRUE
+    },
+    error = function(e){NULL})
+    if (is.null(trash)) {
+        betahat_df$sva_ols <- rep(NA, length = ncol(Y))
+        lfdr_df$sva_ols    <- rep(NA, length = ncol(Y))
+        pi0hat_vec         <- c(pi0hat_vec, NA)
+    }
+    trash <- TRUE
 
     ## Negative control methods--------------------------------------------
     if (!is.null(control_genes)) {
 
-        ## Negative Control CATE --------------------------------------
-        ## error if only use one surrogate variable.
-        cate_nc <- cate::cate(~Treatment, Y = Y,
-                              X.data = data.frame(Treatment = X[, 2]),
-                              r = max(num_sv, 2), fa.method = "pc", adj.method = "nc",
-                              nc = as.logical(control_genes), calibrate = FALSE)
-        cate_nc_out           <- list()
-        cate_nc_out$betahat   <- cate_nc$beta
-        cate_nc_out$sebetahat <- sqrt(cate_nc$beta.cov.row * cate_nc$beta.cov.col) /
-            sqrt(nrow(X))
-        cate_nc_out$pvalue    <- cate_nc$beta.p.value
-        cate_nc_qv            <- fit_freq_methods(out_obj = cate_nc_out)
+        trash <- tryCatch({
+            ## Negative Control CATE --------------------------------------
+            ## error if only use one surrogate variable.
+            cate_nc <- cate::cate(~Treatment, Y = Y,
+                                  X.data = data.frame(Treatment = X[, 2]),
+                                  r = num_sv_cate, fa.method = "pc", adj.method = "nc",
+                                  nc = as.logical(control_genes), calibrate = FALSE)
+            cate_nc_out           <- list()
+            cate_nc_out$betahat   <- cate_nc$beta
+            cate_nc_out$sebetahat <- sqrt(cate_nc$beta.cov.row * cate_nc$beta.cov.col) /
+                sqrt(nrow(X))
+            cate_nc_out$pvalue    <- cate_nc$beta.p.value
+            cate_nc_qv            <- fit_freq_methods(out_obj = cate_nc_out)
 
-        betahat_df$cate_nc <- cate_nc_out$betahat
-        lfdr_df$cate_nc    <- cate_nc_qv$q_storey$lfdr
-        pi0hat_vec         <- c(pi0hat_vec, cate_nc_qv$q_storey$pi0)
+            betahat_df$cate_nc <- cate_nc_out$betahat
+            lfdr_df$cate_nc    <- cate_nc_qv$q_storey$lfdr
+            pi0hat_vec         <- c(pi0hat_vec, cate_nc_qv$q_storey$pi0)
+            TRUE
+        },
+        error = function(e){NULL})
+        if (is.null(trash)) {
+            betahat_df$cate_nc <- rep(NA, length = ncol(Y))
+            lfdr_df$cate_nc    <- rep(NA, length = ncol(Y))
+            pi0hat_vec         <- c(pi0hat_vec, NA)
+        }
+        trash <- TRUE
 
         ## NC CATE + ASH
         ## ash_nc_cate <- fit_ash(cate_nc_out)
@@ -186,33 +253,53 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
         ## pi0hat_vec <- c(pi0hat_vec, sva_nc_ols_qv$q_storey$pi0)
 
 
-        ## RUV2-------------------------------------------------------
-        ruv_ruv2 <- ruv::RUV2(Y = Y, X = as.matrix(X[, ofinterest]),
-                              ctl = as.logical(control_genes),
-                              k = num_sv, Z = as.matrix(X[, -ofinterest]))
-        ruv_ruv2_list         <- list()
-        ruv_ruv2_list$betahat <- c(ruv_ruv2$betahat)
-        ruv_ruv2_list$pvalue  <- c(ruv_ruv2$p)
-        ruv_ruv2_list$df      <- rep(ruv_ruv2$df, length = ncol(Y))
-        ruv2_qv               <- fit_freq_methods(out_obj = ruv_ruv2_list)
+        trash <- tryCatch({
+            ## RUV2-------------------------------------------------------
+            ruv_ruv2 <- ruv::RUV2(Y = Y, X = as.matrix(X[, ofinterest]),
+                                  ctl = as.logical(control_genes),
+                                  k = num_sv, Z = as.matrix(X[, -ofinterest]))
+            ruv_ruv2_list         <- list()
+            ruv_ruv2_list$betahat <- c(ruv_ruv2$betahat)
+            ruv_ruv2_list$pvalue  <- c(ruv_ruv2$p)
+            ruv_ruv2_list$df      <- rep(ruv_ruv2$df, length = ncol(Y))
+            ruv2_qv               <- fit_freq_methods(out_obj = ruv_ruv2_list)
 
-        betahat_df$ruv2 <- ruv_ruv2_list$betahat
-        lfdr_df$ruv2    <- ruv2_qv$q_storey$lfdr
-        pi0hat_vec      <- c(pi0hat_vec, ruv2_qv$q_storey$pi0)
+            betahat_df$ruv2 <- ruv_ruv2_list$betahat
+            lfdr_df$ruv2    <- ruv2_qv$q_storey$lfdr
+            pi0hat_vec      <- c(pi0hat_vec, ruv2_qv$q_storey$pi0)
+            TRUE
+        },
+        error = function(e){NULL})
+        if (is.null(trash)) {
+            betahat_df$ruv2 <- rep(NA, length = ncol(Y))
+            lfdr_df$ruv2    <- rep(NA, length = ncol(Y))
+            pi0hat_vec      <- c(pi0hat_vec, NA)
+        }
+        trash <- TRUE
 
-        ## RUV4 -------------------------------------------------------
-        ruv_ruv4 <- ruv::RUV4(Y = Y, X = as.matrix(X[, ofinterest]),
-                              ctl = as.logical(control_genes),
-                              k = num_sv, Z = as.matrix(X[, -ofinterest]))
-        ruv_ruv4_list         <- list()
-        ruv_ruv4_list$betahat <- c(ruv_ruv4$betahat)
-        ruv_ruv4_list$pvalue  <- c(ruv_ruv4$p)
-        ruv_ruv4_list$df      <- rep(ruv_ruv4$df, length = ncol(Y))
-        ruv4_qv               <- fit_freq_methods(out_obj = ruv_ruv4_list)
+        trash <- tryCatch({
+            ## RUV4 -------------------------------------------------------
+            ruv_ruv4 <- ruv::RUV4(Y = Y, X = as.matrix(X[, ofinterest]),
+                                  ctl = as.logical(control_genes),
+                                  k = num_sv, Z = as.matrix(X[, -ofinterest]))
+            ruv_ruv4_list         <- list()
+            ruv_ruv4_list$betahat <- c(ruv_ruv4$betahat)
+            ruv_ruv4_list$pvalue  <- c(ruv_ruv4$p)
+            ruv_ruv4_list$df      <- rep(ruv_ruv4$df, length = ncol(Y))
+            ruv4_qv               <- fit_freq_methods(out_obj = ruv_ruv4_list)
 
-        betahat_df$ruv4 <- ruv_ruv4_list$betahat
-        lfdr_df$ruv4    <- ruv4_qv$q_storey$lfdr
-        pi0hat_vec      <- c(pi0hat_vec, ruv4_qv$q_storey$pi0)
+            betahat_df$ruv4 <- ruv_ruv4_list$betahat
+            lfdr_df$ruv4    <- ruv4_qv$q_storey$lfdr
+            pi0hat_vec      <- c(pi0hat_vec, ruv4_qv$q_storey$pi0)
+            TRUE
+        },
+        error = function(e){NULL})
+        if (is.null(trash)) {
+            betahat_df$ruv4 <- rep(NA, length = ncol(Y))
+            lfdr_df$ruv4    <- rep(NA, length = ncol(Y))
+            pi0hat_vec      <- c(pi0hat_vec, NA)
+        }
+        trash <- TRUE
     }
 
     return(list(betahat_df = betahat_df, lfdr_df = lfdr_df, pi0hat_vec = pi0hat_vec, succ_lfsr = succ_lfsr))

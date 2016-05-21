@@ -77,7 +77,7 @@ I first normalized the counts by $\log_2(COUNTS + 1)$. The number of hidden conf
 The confounder adjustment methods I look at in this write-up are:
 
 * OLS + qvalue.
-* OLS + ASH
+* RUV + estimate variance inflation using controls + ASH
 * SUCCOTASH using normal mixtures and heteroscedastic PCA as the factor-analysis method.
 * The robust regression version of CATE using PCA as the factor analysis method + qvalue.
 * SVA + qvalue.
@@ -92,6 +92,7 @@ Note that in the plots below, $n$ refers to the size of each group, not the tota
 
 ## Estimates of $\pi_0$
 
+* RUV + ASH Works much better here than vanilla ASH at estimating $\pi_0$, but it is slightly anti-conservative.
 * SUCCOTASH has slightly anti-conservative estimates of $\pi_0$ in the Flattop and bimodal Scenarios. It does well for every other scenario for larger n.
 * LEAPP does amazingly well in the Big-normal and bimodal scenarios, even for $n = 10$. However, it is far too conservative in every other non-null scenario. This seems to indicate that LEAPP functions best if there is a separation of the alternative signal from zero.
 * No method using qvalue ever performed as well as succotash. Indeed, none exhibited this "conservative with high-probability" behavior that is desirable.
@@ -104,13 +105,13 @@ The same type of plots follow these, except using s-values instead of lfsr's. In
 
 
 ## AUC performance.
-SUCCOTASH always has higher AUC, even in the bimodal and big-normal scenarios where LEAPP estimated $\pi_0$ more accurately.
+SUCCOTASH always has higher AUC, even in the bimodal and big-normal scenarios where LEAPP estimated $\pi_0$ more accurately. RUV + ASH has pretty low AUC.
 
 ## ROC
 I calculated the point-wise mean true positive rate (TPR) and false positive rate (FPR) at each ordered position under each scenario. These are plotted after the AUC boxplots. SUCCOTASH always has higher and further left point-wise average ROC curves, even under the bimodal scenario.
 
 ## MSE
-SUCCOTASH has superior performance in term of AUC compared to other methods. LEAPP has terrible MSE performance in all cases except the all-null setting. Even then, SUCCOTASH has better performance.
+SUCCOTASH has superior performance in term of AUC compared to other methods. LEAPP has terrible MSE performance in all cases except the all-null setting. Even then, SUCCOTASH has better performance. RUV + ASH has pretty good MSE performance.
 
 
 \clearpage
