@@ -77,7 +77,9 @@ I first normalized the counts by $\log_2(COUNTS + 1)$. The number of hidden conf
 The confounder adjustment methods I look at in this write-up are:
 
 * OLS + qvalue.
-* RUV + estimate variance inflation using controls + ASH
+* RUVols + estimate variance inflation using controls + ASH
+* RUVgls + estimate variance inflation using controls + ASH
+* RUVgls + estimate variance inflation using controls + MLE to UMVUE motivated scaling + ASH
 * SUCCOTASH using normal mixtures and heteroscedastic PCA as the factor-analysis method.
 * The robust regression version of CATE using PCA as the factor analysis method + qvalue.
 * SVA + qvalue.
@@ -87,31 +89,65 @@ The confounder adjustment methods I look at in this write-up are:
 * Sparse version of LEAPP. Since this is a sparsity-inducing procedure, I used the proportion of zeros as the estimate of $\pi_0$.
 * Ridge version of LEAPP + qvalue.
 
+# RUVASH
+The model for the second step in RUV4, LEAPP, CATE, and SUCCOTASH is
+\begin{align}
+Y &= \beta_{p \times 1} + \hat{\alpha}_{p \times q}Z_{q \times 1} + E_{p \times 1}\\
+E &\sim N_p(0, \lambda\hat{\Sigma})\\
+\hat{\Sigma} &= diag(\hat{\sigma}_1^2,\ldots,\hat{\sigma}_p^2),
+\end{align}
+with $\hat{\Sigma}$ and $\hat{\alpha}$ known. $\lambda$ is a variance inflation parameter that is novel to SUCCOTASH.
+
+Let $\mathcal{C} \subseteq \{1,\ldots,p\}$ denote the indices for the negative controls. I.e. $\beta_{\mathcal{C}} = 0$. Then the model for the negative controls is
+\begin{align}
+Y_{\mathcal{C}} = \alpha_{\mathcal{C}}Z + E_{\mathcal{C}}.
+\end{align}
+The maximum likelihood estimates of $Z$ and $\lambda$ are easy:
+\begin{align}
+\hat{Z} = (\alpha_{\mathcal{C}}^T\hat{\Sigma}^{-1}\alpha_{\mathcal{C}})^{-1}\alpha_{\mathcal{C}}^T\hat{\Sigma}^{-1}Y_{\mathcal{C}}.
+\end{align}
+Let $R_{\mathcal{C}} = Y_{\mathcal{C}} - \hat{\alpha}_{\mathcal{C}}\hat{Z}$. Then the MLE of $\lambda$ is
+\begin{align}
+\hat{\lambda} = \frac{1}{|\mathcal{C}|}\sum_{i \in \mathcal{C}} R_{i}^2/\hat{\sigma}_i^2.
+\end{align}
+
+RUVASH runs ASH with means $\hat{\beta} = Y - \hat{\alpha}\hat{Z}$ and variances $\hat{\lambda}\hat{\sigma}_i^2$.
+
+In the same way that I made an ad-hoc correction to the SUCCOTASH variance inflation parameter, I also explore using this for RUVASH. Specifically, I set
+\begin{align}
+\tilde{\lambda} = \frac{n}{n - k - q} \hat{\lambda}
+\end{align}
+and run ASH with variances $\tilde{\lambda}\hat{\sigma}_i^2$. These are called SRUVASH in the plots below.
+
+
+
 # Results
 Note that in the plots below, $n$ refers to the size of each group, not the total size.
 
 ## Estimates of $\pi_0$
 
 * RUV + ASH Works much better here than vanilla ASH at estimating $\pi_0$, but it is slightly anti-conservative.
+* RUV + ad-hoc scaling + ASH has conservative FDR with high probability in almost every scenario. The only one where it isn't conservative is the Bimodal alternative scenario.
 * SUCCOTASH has slightly anti-conservative estimates of $\pi_0$ in the Flattop and bimodal Scenarios. It does well for every other scenario for larger n.
 * LEAPP does amazingly well in the Big-normal and bimodal scenarios, even for $n = 10$. However, it is far too conservative in every other non-null scenario. This seems to indicate that LEAPP functions best if there is a separation of the alternative signal from zero.
 * No method using qvalue ever performed as well as succotash. Indeed, none exhibited this "conservative with high-probability" behavior that is desirable.
 
-## Succotash lfsr behavior.
-
-The next set of plots show the relationship between lfsr and the false sign proportion when declaring all genes below said lfsr "significant". False sign proportion here means the proportion of declared significant genes that have the incorrect sign. The shaded region contains the point-wise 95\% bounds on the observed curves.
-
-The same type of plots follow these, except using s-values instead of lfsr's. In general, the s-values for $n = 20$ or $40$ reasonably estimate the average error rate. It plateaus because the maximum s-value is often near 0.5 when $\pi_0 = 0.5$ and near 0.9 when $\pi_0 = 0.9$. So it might make more sense for me not to include those values above the max s-value.
-
 
 ## AUC performance.
-SUCCOTASH always has higher AUC, even in the bimodal and big-normal scenarios where LEAPP estimated $\pi_0$ more accurately. RUV + ASH has pretty low AUC.
+
+* SUCCOTASH always has higher AUC, even in the bimodal and big-normal scenarios where LEAPP estimated $\pi_0$ more accurately.
+* All of the RUV + ASH methods have about the same AUC as SUCCOTASH --- including the one with the ad-hoc scaling value that works so well with estimating $\pi_0$.
 
 ## ROC
-I calculated the point-wise mean true positive rate (TPR) and false positive rate (FPR) at each ordered position under each scenario. These are plotted after the AUC boxplots. SUCCOTASH always has higher and further left point-wise average ROC curves, even under the bimodal scenario.
+I calculated the point-wise mean true positive rate (TPR) and false positive rate (FPR) at each ordered position under each scenario. These are plotted after the AUC boxplots. SUCCOTASH and the RUV + ASH methods always have higher and further left point-wise average ROC curves, even under the bimodal scenario.
 
 ## MSE
-SUCCOTASH has superior performance in term of AUC compared to other methods. LEAPP has terrible MSE performance in all cases except the all-null setting. Even then, SUCCOTASH has better performance. RUV + ASH has pretty good MSE performance.
+
+* SUCCOTASH has superior performance in term of MSE compared to other methods.
+* LEAPP has terrible MSE performance in all cases except the all-null setting.
+* Even then, SUCCOTASH has better performance.
+* RUV + ASH has pretty good MSE performance.
+* The ad-hoc scaling version of RUV + ASH seems to suffer in MSE a little bit, especially at low sample sizes.
 
 
 \clearpage
@@ -128,11 +164,15 @@ library(pROC)
 ## pi0hat plots ------------------------------------------------------------------------
 load("pi0hat_muscle.Rd")
 load("method_vec.Rd")
-method_vec <- c(method_vec, "ASH")
+method_vec <- c(method_vec, "RUVASHOLS", "RUVASHGLS", "SRUVASHGLS")
 load("pi0hat_muscle_ash.Rd")
+load("pi0hat_muscle_ruvash.Rd")
+load("pi0hat_muscle_sruvash.Rd")
+
 
 for (index in 1:length(ash_pi0hat)) {
-    pi0hat[[index]] <- c(pi0hat[[index]], ash_pi0hat[[index]])
+    pi0hat[[index]] <- c(pi0hat[[index]], ash_pi0hat[[index]], ruvash_pi0hat[[index]],
+                         sruvash_pi0hat[[index]])
 }
 
 par_vals <- read.csv("sim_settings.csv")
@@ -195,158 +235,22 @@ library(ggplot2)
 library(reshape2)
 library(dplyr)
 library(pROC)
-## lfsr plots ------------------------------------------------------------------------
-rm(list = ls())
-load("betahat_muscle.Rd")
-get_beta_sign <- function(mat) {
-    return(sign(mat$beta_true))
-}
-sign_beta <- sapply(betahat, FUN = get_beta_sign)
-
-get_betahat_sign <- function(mat) {
-    return(sign(mat$succotash))
-}
-sign_betahat <- sapply(betahat, FUN = get_betahat_sign)
-rm("betahat")
-
-load("succ_lfsr_muscle.Rd")
-get_lfsr <- function(mat) {
-    return(mat$normal)
-}
-lfsr <- sapply(succ_lfsr, FUN = get_lfsr)
-
-par_vals <- read.csv("sim_settings.csv")
-
-
-lfsr_curve <- function(lfsr_vec, betahat_vec, betatrue_vec, props = seq(0.01, 1, by  = 0.01)) {
-
-    ## ordering_lfsr <- order(lfsr_vec)
-    ## lfsr_vec     <- lfsr_vec[ordering_lfsr]
-    ## betahat_vec  <- betahat_vec[ordering_lfsr]
-    ## betatrue_vec <- betatrue_vec[ordering_lfsr]
-    fsp <- rep(NA, length = length(props))
-    for (pindex in 1:length(props)) {
-        current_p <- props[pindex]
-        which_small <- lfsr_vec <= current_p
-        if (sum(which_small) == 0) {
-            fsp[pindex] <- 0
-        } else {
-            betahat_small <- betahat_vec[which_small]
-            betatrue_small <- betatrue_vec[which_small]
-            fsp[pindex] <- 1 - mean(betahat_small == betatrue_small)
-        }
-    }
-    return(fsp)
-}
-
-lfsr_curve_concat <- function(concat_vec, props = seq(0.01, 1, by  = 0.01)) {
-    num_entries <- length(concat_vec) / 3
-    lfsr_vec     <- concat_vec[1:num_entries]
-    betahat_vec  <- concat_vec[(num_entries + 1):(2 * num_entries)]
-    betatrue_vec <- concat_vec[(2 * num_entries + 1):(3 * num_entries)]
-    fsp <- lfsr_curve(lfsr_vec = lfsr_vec, betahat_vec = betahat_vec,
-                      betatrue_vec = betatrue_vec, props = props)
-    return(fsp)
-}
-
-
-overall_mat <- rbind(lfsr, sign_betahat, sign_beta)
-
-fsp <- as.data.frame(t(apply(overall_mat, 2, FUN = lfsr_curve_concat)))
-props = seq(0.01, 1, by  = 0.01)
-names(fsp)   <- props
-fsp$nullpi   <- par_vals$nullpi
-fsp$Nsamp    <- par_vals$Nsamp
-fsp$alt_type <- par_vals$alt_type
-alt_type_seq <- unique(par_vals$alt_type)
-
-fsp_dat <- melt(fsp, id.vars = c("nullpi", "Nsamp", "alt_type"))
-fsp_dat$variable <- as.numeric(levels(fsp_dat$variable))[fsp_dat$variable]
-
-names(fsp_dat) <- c("nullpi", "Nsamp", "alt_type", "lfsr_max", "fsp")
-
-summary_lfsr <- aggregate(fsp ~ nullpi + Nsamp + alt_type + lfsr_max, data = fsp_dat,
-                          FUN = quantile, probs = c(0.025, 0.5, 0.975))
-
-summ <- cbind(summary_lfsr[, 1:4], summary_lfsr[,5])
-colnames(summ) <- c("nullpi", "Nsamp", "alt_type", "lfsr_max", "Lower", "Median", "Upper")
-
-for (alt_type_index in 1:length(alt_type_seq)) {
-    current_alt_type <- alt_type_seq[alt_type_index]
-    summ_sub <- summ[summ$alt_type == current_alt_type, ]
-    p <- ggplot(data = summ_sub, aes(x = lfsr_max, y = Median), color = "blue") +
-        facet_grid(nullpi~Nsamp) +
-        geom_path() + geom_abline(slope = 1, intercept = 0, color = I("black"), lty = 2) +
-        geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.1, fill = I("green")) +
-        ylim(c(0, 1)) + ylab("False Sign Proportion") + xlab("Max lfsr") +
-        ggtitle(paste("FSP Below Max LFSR when Alt Type =", current_alt_type))
-    print(p)
-}
-
-
-
-
-## Same thing but with s-values -----------------------------------------------
-get_svalue <- function(lfsr_vec) {
-    order_lfsr <- order(lfsr_vec)
-    lfsr_vec <- lfsr_vec[order_lfsr]
-    svalue <- cumsum(lfsr_vec) / 1:length(lfsr_vec)
-    return(svalue[order(order_lfsr)])
-}
-
-svalue <- apply(lfsr, 2, get_svalue)
-
-overall_mat <- rbind(svalue, sign_betahat, sign_beta)
-
-fsp <- as.data.frame(t(apply(overall_mat, 2, FUN = lfsr_curve_concat)))
-props = seq(0.01, 1, by  = 0.01)
-names(fsp)   <- props
-fsp$nullpi   <- par_vals$nullpi
-fsp$Nsamp    <- par_vals$Nsamp
-fsp$alt_type <- par_vals$alt_type
-alt_type_seq <- unique(par_vals$alt_type)
-
-fsp_dat <- melt(fsp, id.vars = c("nullpi", "Nsamp", "alt_type"))
-fsp_dat$variable <- as.numeric(levels(fsp_dat$variable))[fsp_dat$variable]
-
-names(fsp_dat) <- c("nullpi", "Nsamp", "alt_type", "svalue_max", "fsp")
-
-summary_svalue <- aggregate(fsp ~ nullpi + Nsamp + alt_type + svalue_max, data = fsp_dat,
-                          FUN = quantile, probs = c(0.025, 0.5, 0.975))
-
-summ <- cbind(summary_svalue[, 1:4], summary_svalue[,5])
-colnames(summ) <- c("nullpi", "Nsamp", "alt_type", "svalue_max", "Lower", "Median", "Upper")
-
-for (alt_type_index in 1:length(alt_type_seq)) {
-    current_alt_type <- alt_type_seq[alt_type_index]
-    summ_sub <- summ[summ$alt_type == current_alt_type, ]
-    p <- ggplot(data = summ_sub, aes(x = svalue_max, y = Median), color = "blue") +
-        facet_grid(nullpi~Nsamp) +
-        geom_path() + geom_abline(slope = 1, intercept = 0, color = I("black"), lty = 2) +
-        geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.1, fill = I("green")) +
-        ylim(c(0, 1)) + ylab("False Sign Proportion") + xlab("Max svalue") +
-        ggtitle(paste("FSP Below Max svalue when Alt Type =", current_alt_type))
-    print(p)
-}
-```
-
-\clearpage
-
-```{r, cache = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
-library(ggplot2)
-library(reshape2)
-library(dplyr)
-library(pROC)
 
 ## AUC Boxplots ---------------------------------------------------------------------
 rm(list = ls())
 load("lfdr_muscle.Rd")
 load("lfdr_muscle_ash.Rd")
+load("lfdr_muscle_ruvash.Rd")
+load("lfdr_muscle_sruvash.Rd")
 
 for (index in 1:length(ash_lfdr)) {
-    lfdr[[index]]$ASH <- ash_lfdr[[index]][,1]
-    lfdr[[index]] <- lfdr[[index]][, c(1:(ncol(lfdr[[index]]) - 2),
-                                       ncol(lfdr[[index]]), ncol(lfdr[[index]]) - 1)]
+    lfdr[[index]]$RUVASHOLS <- ash_lfdr[[index]][,1]
+    lfdr[[index]]$RUVASHGLS <- ruvash_lfdr[[index]][,1]
+    lfdr[[index]]$SRUVASHGLS <- sruvash_lfdr[[index]][,1]
+    lfdr[[index]] <- lfdr[[index]][, c(1:(ncol(lfdr[[index]]) - 4),
+                                       ncol(lfdr[[index]]) - 2, ncol(lfdr[[index]]) - 1,
+                                       ncol(lfdr[[index]]),
+                                       ncol(lfdr[[index]]) - 3)]
 }
 
 par_vals <- read.csv("sim_settings.csv")
@@ -425,12 +329,18 @@ library(pROC)
 rm(list = ls())
 load("lfdr_muscle.Rd")
 load("lfdr_muscle_ash.Rd")
+load("lfdr_muscle_ruvash.Rd")
+load("lfdr_muscle_sruvash.Rd")
 par_vals <- read.csv("sim_settings.csv")
 
 for (index in 1:length(ash_lfdr)) {
-    lfdr[[index]]$ASH <- ash_lfdr[[index]][,1]
-    lfdr[[index]] <- lfdr[[index]][, c(1:(ncol(lfdr[[index]]) - 2),
-                                       ncol(lfdr[[index]]), ncol(lfdr[[index]]) - 1)]
+    lfdr[[index]]$RUVASHOLS <- ash_lfdr[[index]][,1]
+    lfdr[[index]]$RUVASHGLS <- ruvash_lfdr[[index]][,1]
+    lfdr[[index]]$SRUVASHGLS <- sruvash_lfdr[[index]][,1]
+    lfdr[[index]] <- lfdr[[index]][, c(1:(ncol(lfdr[[index]]) - 4),
+                                       ncol(lfdr[[index]]) - 2, ncol(lfdr[[index]]) - 1,
+                                       ncol(lfdr[[index]]),
+                                       ncol(lfdr[[index]]) - 3)]
 }
 
 nullpi_seq <- unique(par_vals$nullpi)
@@ -542,12 +452,18 @@ library(pROC)
 rm(list = ls())
 load("betahat_muscle.Rd")
 load("betahat_muscle_ash.Rd")
+load("betahat_muscle_ruvash.Rd")
+load("betahat_muscle_sruvash.Rd")
 par_vals <- read.csv("sim_settings.csv")
 
 for (index in 1:length(ash_betahat)) {
-    betahat[[index]]$ASH <- ash_betahat[[index]][,1]
-    betahat[[index]] <- betahat[[index]][, c(1:(ncol(betahat[[index]]) - 2),
-                                       ncol(betahat[[index]]), ncol(betahat[[index]]) - 1)]
+    betahat[[index]]$RUVASHOLS <- ash_betahat[[index]][,1]
+    betahat[[index]]$RUVASHGLS <- ruvash_betahat[[index]][,1]
+    betahat[[index]]$SRUVASHGLS <- sruvash_betahat[[index]][,1]
+    betahat[[index]] <- betahat[[index]][, c(1:(ncol(betahat[[index]]) - 4),
+                                       ncol(betahat[[index]]) - 2, ncol(betahat[[index]]) - 1,
+                                       ncol(betahat[[index]]),
+                                       ncol(betahat[[index]]) - 3)]
 }
 
 
@@ -582,6 +498,30 @@ for (alt_type_index in 1:length(alt_type_seq)) {
 }
 
 ```
+
+\clearpage
+
+# MSE without LEAPP
+
+```{r, echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE}
+
+mse_mat <- dplyr::select(mse_mat, -c(leapp_sparse, leapp_ridge))
+for (alt_type_index in 1:length(alt_type_seq)) {
+    current_alt_type <- alt_type_seq[alt_type_index]
+
+    mse_mat_sub <- mse_mat[mse_mat$alt_type == current_alt_type,]
+    mse_mat_sub <- dplyr::select(mse_mat_sub, -alt_type)
+    long_dat <- melt(mse_mat_sub, id.vars = c("nullpi", "Nsamp"))
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("MSE")
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + ggtitle(paste("MSE When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index]))
+    print(p)
+}
+```
+
 
 ```{r}
 sessionInfo()
