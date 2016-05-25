@@ -128,36 +128,36 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
 
     ## LEAPP Sparse-------------------------------------------------------
     ## Sometimes stalls when sparse = TRUE
-    trash2 <- tryCatch({
-        trash <- R.utils::evalWithTimeout({
-            leapp_sparse <- leapp::leapp(dat = t(Y), pred.prim = X[, ofinterest],
-                                         pred.covar = X[, -ofinterest],
-                                         num.fac = num_sv)
-            leapp_sparse_out         <- list()
-            leapp_sparse_out$betahat <- leapp_sparse$gamma
-            leapp_sparse_out$pvalue  <- leapp_sparse$p
-            leapp_sparse_qv          <- fit_freq_methods(out_obj = leapp_sparse_out)
+    ## trash2 <- tryCatch({
+    ##     trash <- R.utils::evalWithTimeout({
+    ##         leapp_sparse <- leapp::leapp(dat = t(Y), pred.prim = X[, ofinterest],
+    ##                                      pred.covar = X[, -ofinterest],
+    ##                                      num.fac = num_sv)
+    ##         leapp_sparse_out         <- list()
+    ##         leapp_sparse_out$betahat <- leapp_sparse$gamma
+    ##         leapp_sparse_out$pvalue  <- leapp_sparse$p
+    ##         leapp_sparse_qv          <- fit_freq_methods(out_obj = leapp_sparse_out)
 
-            betahat_df$leapp_sparse <- leapp_sparse_out$betahat
-            lfdr_df$leapp_sparse    <- leapp_sparse_qv$q_storey$lfdr
-            ##pi0hat_vec            <- c(pi0hat_vec, leapp_sparse_qv$q_storey$pi0)
-            pi0hat_vec              <- c(pi0hat_vec,
-                                         mean(abs(leapp_sparse_out$betahat) <= 10 ^ -10))
-            TRUE
-        },
-        timeout = 120,
-        onTimeout = "silent")
-    },
-    error = function(e){NULL})
-    if(is.null(trash2)) {
-        betahat_df$leapp_sparse <- rep(NA, length = ncol(Y))
-        lfdr_df$leapp_sparse    <- rep(NA, length = ncol(Y))
-        pi0hat_vec              <- c(pi0hat_vec, NA)
-    } else if (is.null(trash)) {
-        betahat_df$leapp_sparse <- rep(NA, length = ncol(Y))
-        lfdr_df$leapp_sparse    <- rep(NA, length = ncol(Y))
-        pi0hat_vec              <- c(pi0hat_vec, NA)
-    }
+    ##         betahat_df$leapp_sparse <- leapp_sparse_out$betahat
+    ##         lfdr_df$leapp_sparse    <- leapp_sparse_qv$q_storey$lfdr
+    ##         ##pi0hat_vec            <- c(pi0hat_vec, leapp_sparse_qv$q_storey$pi0)
+    ##         pi0hat_vec              <- c(pi0hat_vec,
+    ##                                      mean(abs(leapp_sparse_out$betahat) <= 10 ^ -10))
+    ##         TRUE
+    ##     },
+    ##     timeout = 120,
+    ##     onTimeout = "silent")
+    ## },
+    ## error = function(e){NULL})
+    ## if(is.null(trash2)) {
+    ##     betahat_df$leapp_sparse <- rep(NA, length = ncol(Y))
+    ##     lfdr_df$leapp_sparse    <- rep(NA, length = ncol(Y))
+    ##     pi0hat_vec              <- c(pi0hat_vec, NA)
+    ## } else if (is.null(trash)) {
+    ##     betahat_df$leapp_sparse <- rep(NA, length = ncol(Y))
+    ##     lfdr_df$leapp_sparse    <- rep(NA, length = ncol(Y))
+    ##     pi0hat_vec              <- c(pi0hat_vec, NA)
+    ## }
 
 
     ## LEAPP Ridge--------------------------------------------------------
@@ -206,6 +206,12 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
 
     ## Negative control methods--------------------------------------------
     if (!is.null(control_genes)) {
+
+        ruvash_out <- ashr::ash_ruv(Y = Y, X = X, k = num_sv, ctl = as.logical(control_genes))
+        betahat_df$ruvash <- ruvash_out$PosteriorMean
+        lfdr_df$ruvash <- ruvash_out$lfdr
+        pi0hat_vec <- c(pi0hat_vec, ruvash_out$fitted.g$pi[1])
+
 
         trash <- tryCatch({
             ## Negative Control CATE --------------------------------------

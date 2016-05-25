@@ -1,0 +1,71 @@
+---
+title: "Estimates of pi0"
+author: "David Gerard"
+date: "`r Sys.Date()`"
+output: rmarkdown::pdf_document
+fig_caption: yes
+---
+
+# Abstract
+I plot estimates of $\pi_0$ versus $\pi_0$ for various methods under various alternative densities. RUVASH and SUCCOTASH perform the best.
+
+# Method
+I used $\pi_0$ from a grid from $0.01$ to $0.99$, generated count data from the muscle GTEX data with $p = 1000$, where $p$ is the number of genes. Signal was added via the Poisson thinning procedure with log2-fold-changes drawn from the same alternative distributions as in the ASH paper (see table below). The only difference is that the mixing variances were also divided by $n - 2$, where $n$ is the sample size. This is a little different from my previous simulation settings and is meant to conform to the settings that Mengyin has been looking at.
+
+\begin{center}
+\begin{tabular}{ll}
+Scenario & Alternative Distribution \\
+\hline
+Spiky & $0.4N(0, 0.25^2) + 0.2N(0, 0.5^2) + 0.2N(0, 1^2), 0.2N(0, 2^2)$\\
+Near Normal & $2/3N(0, 1^2) + 1/3N(0, 2^2)$\\
+Flattop & $(1/7)N(-1.5, .5^2) + N(-1, .5^2) + N(-.5, .5^2)+N(0, .5^2) + N(0.5, .5^2) + N(1.0, .5^2) + N(1.5, .5^2)$\\
+Skew & $(1/4)N(-2, 2^2) + (1/4)N(-1, 1.5^2) + (1/3)N(0, 1^2) + (1/6)N(1, 1^2)$\\
+Big-normal & $N(0, 4^2)$\\
+Bimodal & $0.5N(-2, 1^2) + 0.5N(2, 1^2)$
+\end{tabular}
+\end{center}
+
+I ran 10 methods, keeping their estimates of $\pi_0$:
+
+* OLS + qvalue.
+* OLS + ASH
+* Two-step SUCCOTASH using normal mixtures and heteroscedastic PCA as the factor-analysis method.
+* The robust regression version of CATE using PCA as the factor analysis method + qvalue.
+* SVA + qvalue.
+* Scaled version of RUVASH.
+* Negative control version of CATE using PCA as the factor analysis method + qvalue.
+* RUV2 + qvalue.
+* RUV4 + qvalue.
+* Ridge version of LEAPP + qvalue.
+
+Plots of $\pi_0$ vs $\hat{\pi}_0$ for each method in each combination of $n$ by alternative type are plotted below.
+
+# Results
+SUCCOTASH and RUVASH seem to perform the best, but all of the methods seem to be getting better at estimating $\pi_0$ as $n$ increases.
+
+In this case where the mixing variances decrease with $n$, SUCCOTASH and RUVASH actually perform the worst in the spiky scenario rather than the bimodal scenario. But they perform better than the other methods in the spiky scenario.
+
+```{r, echo = FALSE, warning = FALSE, cache = TRUE, fig.height = 9}
+library(ggplot2)
+library(reshape2)
+library(ggsci)
+pi0hat <- read.csv("pi0hat_df.csv")
+mypal = pal_npg()(10)
+for (index in 1:10) {
+    p <- ggplot(data = pi0hat, mapping = aes(x = nullpi, y = pi0hat[, index],
+                                             color = I(mypal[index]))) +
+        facet_grid(alt_type~Nsamp) +
+        geom_point(pch = I(16)) +
+        geom_abline(slope = 1, intercept = 0) +
+        ylab(expression(hat(pi)[0])) +
+        xlab(expression(pi[0])) +
+        ggtitle(paste(names(pi0hat)[index], "pi0hat.")) +
+        theme_bw() +
+        theme(strip.background = element_rect(fill = "white"))
+    print(p)
+}
+```
+
+```{r}
+sessionInfo()
+```
