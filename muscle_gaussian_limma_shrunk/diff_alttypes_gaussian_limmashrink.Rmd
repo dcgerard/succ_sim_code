@@ -1,0 +1,283 @@
+---
+title: "Different Alternative Types Simulated Data"
+author: "David Gerard"
+date: "`r Sys.Date()`"
+output: rmarkdown::pdf_document
+bibliography: sva_bib.bib
+fig_caption: yes
+---
+
+
+
+# Abstract
+I compare various competitors under the same alternative scenarios in @stephens2016false but using simulated data rather than the GTEX data. The results are more muddled than in the GTEX simulations. Overall, it seems RUVASH does best. SUCCOTASH does much worse than in the GTEX simulations. This is different from \color{blue}{\href{http://dcgerard.github.io/succotash_sims/analysis/diff_alttypes_gaussian.pdf}{this previous write-up}} \color{black} in two ways: (1) I shrunk the variances when generating $Z$, $\alpha$, and $E$, and (2) I used limma-shrunk variances for RUVASH. This resulted in improved performance of RUVASH.
+
+# Simulation Setup
+I ran through 200 repetitions of generating data from the factor-augmented Gaussian regression model:
+\begin{align}
+Y_{n \times p} &= X_{n \times k}\beta_{k \times p} + Z_{n\times q}\alpha_{q\times p} + E_{n \times p}\\
+E &\sim N_{n \times p}(0, \Sigma \otimes I_n)\\
+\Sigma &= diag(\sigma_1^2,\ldots,\sigma_p^2)
+\end{align}
+under parameter conditions:
+
+* $n \in \{10, 20, 40\}$,
+* $p = 1000$,
+* $k = 2$,
+* $q = 5$
+* $\beta_{1j} \overset{iid}{\sim} N(0,1)$,
+* $\beta_{2j}$ being iid a mixture of normals with null proportion $\pi_0$,
+* $Z_{ij} \overset{iid}{\sim} N(0,1/4)$,
+* $\alpha_{ij} \overset{iid}{\sim} N(0,1/4)$,
+* $X_{j1} = 1$ for all $j = 1,\ldots, n$,
+* $X_{j2} = 1$ for $j = 1,\ldots, n/2$ and $X_{j2} = 0$ for $j = n/2,\ldots, n$,
+* $\sigma_j^2 = 1/4$ for all $j = 1,\ldots,p$,
+* $\pi_0 \in \{0.5, 0.9, 1\}$,
+* The alternative distribution of $\beta_{2j}$ being either spiky, near-normal, flattop, skew, big-normal, or bimodal, where these are the same alternatives defined in @stephens2016false and the following table. New alternatives are generated every iteration.
+
+\begin{center}
+\begin{tabular}{ll}
+Scenario & Alternative Distribution \\
+\hline
+Spiky & $0.4N(0, 0.25^2) + 0.2N(0, 0.5^2) + 0.2N(0, 1^2), 0.2N(0, 2^2)$\\
+Near Normal & $2/3N(0, 1^2) + 1/3N(0, 2^2)$\\
+Flattop & $(1/7)N(-1.5, .5^2) + N(-1, .5^2) + N(-.5, .5^2)+N(0, .5^2) + N(0.5, .5^2) + N(1.0, .5^2) + N(1.5, .5^2)$\\
+Skew & $(1/4)N(-2, 2^2) + (1/4)N(-1, 1.5^2) + (1/3)N(0, 1^2) + (1/6)N(1, 1^2)$\\
+Big-normal & $N(0, 4^2)$\\
+Bimodal & $0.5N(-2, 1^2) + 0.5N(2, 1^2)$
+\end{tabular}
+\end{center}
+
+At each iteration, I generated new values of $X$, $Z$, $\alpha$, $\beta$, $E$, and thus also $Y$.
+
+# Questions on simulation settings
+
+* Right now, I am simulating $Z$ independently of $X$. Should I be generating $Z$ to have some pre-specified correlation with $X$?
+* I have $q = 5$ for all $n$. Should I increase $q$ as $n$ increases?
+* I assume $q$ is known. Should I estimate it every iteration, as I do in the GTEX simulations? Maybe SUCCOTASH and RUVASH are more robust to the choice of $q$? Or maybe the true $q$ isn't the best $q$ to use when doing estimation?
+* I didn't choose the variances of $\beta_{1j}$, $Z_{ij}$, and $E_{ij}$ carefully. Should I vary them so that proportion of variance explained by $\beta_{2j}$ is different?
+* Should I even include $\beta_{1j}$ in the simulations?
+
+# Methods
+The confounder adjustment methods I look at in this write-up are:
+
+* OLS + qvalue.
+* OLS + ASH
+* SUCCOTASH using normal mixtures and heteroscedastic PCA as the factor-analysis method. This is the two-step version that does variance inflation.
+* The robust regression version of CATE using PCA as the factor analysis method + qvalue.
+* SVA + qvalue.
+* RUVASH with normal likelihood. I used limma-variances here.
+* RUV4 (GLS version) using the variance inflation. I used limma-shrunk variances here.
+* Negative control version of CATE using PCA as the factor analysis method + qvalue.
+* RUV2 + qvalue.
+* RUV4 + qvalue.
+* RUV4 + ASH (without variance inflation).
+
+# Results
+
+## Estimates of $\pi_0$
+
+* When $n = 40$, the clear winner is RUVASH.
+* SUCCOTASH does well when $n = 40$ and $\pi_0 = 0.5$, but not so well when $\pi_0 = 0.9$.
+
+## AUC performance.
+
+* RUVASH is the clear winner in all ways except some weird behavior is going on when n = 10 and the alternative is the flattop scenario. This might just be because of using the limma-shrunk variances.
+* ruv4_inflate works well except when n = 10 and $\pi_0 = 0.9$. I don't know whey it doesn't work here.
+
+
+
+## MSE
+* All of the ASH methods work well in terms of MSE.
+
+\clearpage
+
+
+```{r, cache = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(pROC)
+
+
+
+## pi0hat plots ------------------------------------------------------------------------
+load("pi0hat_muscle.Rd")
+load("method_vec.Rd")
+par_vals <- read.csv("sim_settings.csv")
+
+nullpi_seq   <- unique(par_vals$nullpi)
+nsamp_seq    <- unique(par_vals$Nsamp)
+alt_type_seq <- unique(par_vals$alt_type)
+
+
+for (alt_type_index in 1:(length(alt_type_seq) - 1)) {
+    which_alt <- par_vals$alt_type == alt_type_seq[alt_type_index]
+
+    pi0mat <- as.data.frame(t(sapply(pi0hat[which_alt], FUN = c)))
+    names(pi0mat) <- method_vec
+    pi0mat$nullpi <- par_vals$nullpi[which_alt]
+    pi0mat$Nsamp  <- par_vals$Nsamp[which_alt]
+
+    ## pi0_plot
+    dummy_dat <- expand.grid(nullpi_seq[-length(nullpi_seq)], nsamp_seq)
+    colnames(dummy_dat) <- c("nullpi", "Nsamp")
+
+    name_vec <- colnames(pi0mat)
+    colnames(pi0mat) <- gsub("pi0hat_", "", x = name_vec)
+    long_dat <- melt(pi0mat, id.vars = c("nullpi", "Nsamp"),
+                     measure.vars = colnames(pi0mat)[1:(ncol(pi0mat) - 2)])
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab(expression(hat(pi)[0]))
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + geom_hline(data = dummy_dat, aes(yintercept = nullpi), lty = 2, color = "red", lwd = 1)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + ggtitle(paste("Estimates of pi0 When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index]))
+    print(p)
+}
+
+which_alt <- par_vals$alt_type == "all_null"
+pi0mat <- as.data.frame(t(sapply(pi0hat[which_alt], FUN = c)))
+names(pi0mat) <- method_vec
+pi0mat$nullpi <- par_vals$nullpi[which_alt]
+pi0mat$Nsamp  <- par_vals$Nsamp[which_alt]
+dummy_dat <- data.frame(Nsamp = nsamp_seq, nullpi = rep(1, length = length(nsamp_seq)))
+
+name_vec <- colnames(pi0mat)
+colnames(pi0mat) <- gsub("pi0hat_", "", x = name_vec)
+long_dat <- melt(pi0mat, id.vars = c("Nsamp"),
+                 measure.vars = colnames(pi0mat)[1:(ncol(pi0mat) - 2)])
+p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+p <- p + facet_grid(.~Nsamp) + ylab(expression(hat(pi)[0]))
+p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+p <- p + geom_hline(data = dummy_dat, aes(yintercept = nullpi), lty = 2, color = "red", lwd = 1)
+p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+p <- p + ggtitle("Estimates of pi0 When Using Muscle Tissue and All Null")
+print(p)
+```
+
+\clearpage
+
+```{r, cache = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(pROC)
+
+## AUC Boxplots ---------------------------------------------------------------------
+rm(list = ls())
+load("lfdr_muscle.Rd")
+par_vals <- read.csv("sim_settings.csv")
+
+get_auc <- function(lfdr_mat) {
+    null_col <- which(colnames(lfdr_mat) == "which_null")
+    auc_vec <- rep(NA, length = ncol(lfdr_mat) - 1)
+    for(index in (1:length(auc_vec))[-null_col]) {
+        if (all(is.na(lfdr_mat[, index]))) {
+            auc_vec[index] <- NA
+        } else {
+            auc_vec[index] <- roc(response = lfdr_mat$which_null,
+                                  predictor = c(lfdr_mat[, index]))$auc
+            }
+    }
+    return(auc_vec)
+}
+
+## which_allnull <- par_vals$alt_type == "all_null"
+## auc_mat <- as.data.frame(t(sapply(lfdr[!which_allnull], FUN = get_auc)))
+## names(auc_mat) <- colnames(lfdr[[1]])[1:(ncol(lfdr[[1]]) - 1)]
+## auc_mat$nullpi   <- par_vals$nullpi[!which_allnull]
+## auc_mat$Nsamp    <- par_vals$Nsamp[!which_allnull]
+## auc_mat$alt_type <- par_vals$alt_type[!which_allnull]
+## write.csv(auc_mat, file = "auc_mat.csv", row.names = FALSE)
+
+auc_mat <- read.csv("auc_mat.csv")
+alt_type_seq <- unique(auc_mat$alt_type)
+
+
+for (alt_type_index in 1:length(alt_type_seq)) {
+    current_alt_type <- alt_type_seq[alt_type_index]
+
+    auc_mat_sub <- auc_mat[auc_mat$alt_type == current_alt_type,]
+    auc_mat_sub <- dplyr::select(auc_mat_sub, -alt_type)
+
+
+    ## create dummy dat to plot max median auc
+    nullpi_seq <- unique(auc_mat_sub$nullpi)
+    nsamp_seq <- unique(auc_mat_sub$Nsamp)
+    dummy_dat <- expand.grid(nullpi_seq, nsamp_seq)
+    colnames(dummy_dat) <- c("nullpi", "Nsamp")
+    med_mat <- matrix(NA, nrow = length(nullpi_seq) * length(nsamp_seq), ncol = ncol(auc_mat_sub) - 3)
+    for (index in 1:(ncol(auc_mat_sub) - 3)) {
+        form1 <- as.formula(paste(colnames(auc_mat_sub)[index], "~ nullpi + Nsamp"))
+        out1 <- aggregate(form1, FUN = median, na.rm = TRUE,
+                          data = auc_mat_sub)
+        med_mat[, index] <- out1[, 3]
+    }
+    dummy_dat2 <- cbind(expand.grid(nullpi_seq[nullpi_seq != 1], nsamp_seq), apply(med_mat, 1, max))
+    colnames(dummy_dat2) <- c("nullpi", "Nsamp", "max_med")
+    ## end dummy dat
+
+
+    long_dat <- melt(auc_mat_sub, id.vars = c("nullpi", "Nsamp"))
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("AUC")
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + geom_hline(data = dummy_dat2, aes(yintercept = max_med), lty = 2,
+                        color = "red", lwd = 0.6)
+    p <- p + ggtitle(paste("AUC When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index]))
+    print(p)
+}
+```
+
+\clearpage
+
+```{r, cache = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(pROC)
+
+rm(list = ls())
+load("betahat_muscle.Rd")
+par_vals <- read.csv("sim_settings.csv")
+
+
+get_mse <- function(beta_mat) {
+    which_betatrue <- which(colnames(beta_mat) == "beta_true")
+    return(colMeans((beta_mat$beta_true - beta_mat[, -which_betatrue]) ^ 2))
+}
+
+mse_mat          <- as.data.frame(t(sapply(betahat, get_mse)))
+colnames(mse_mat) <- colnames(betahat[[1]])[1:(length(betahat[[1]]) - 1)]
+mse_mat$nullpi   <- par_vals$nullpi
+mse_mat$Nsamp    <- par_vals$Nsamp
+mse_mat$alt_type <- par_vals$alt_type
+alt_type_seq     <- unique(mse_mat$alt_type)
+
+for (alt_type_index in 1:length(alt_type_seq)) {
+    current_alt_type <- alt_type_seq[alt_type_index]
+
+    mse_mat_sub <- mse_mat[mse_mat$alt_type == current_alt_type,]
+    ymax <- quantile(c(as.matrix(dplyr::select(mse_mat_sub, -c(nullpi, Nsamp, alt_type)))),
+             0.999, na.rm = TRUE)
+    mse_mat_sub <- dplyr::select(mse_mat_sub, -alt_type)
+    long_dat <- melt(mse_mat_sub, id.vars = c("nullpi", "Nsamp"))
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("MSE")
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + ggtitle(paste("MSE When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index])) +
+        ylim(0, ymax)
+    print(p)
+}
+
+```
+
+```{r}
+sessionInfo()
+```

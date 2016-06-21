@@ -1,0 +1,407 @@
+---
+title: "Different Alternative Types"
+author: "David Gerard"
+date: "`r Sys.Date()`"
+output: rmarkdown::pdf_document
+bibliography: sva_bib.bib
+fig_caption: yes
+---
+
+
+
+# Abstract
+I compare SUCCOTASH to various competitors under the same alternative scenarios in @stephens2016false. SUCCOTASH generally has superior performance in terms of (1) estimating $\pi_0$, (2) having higher AUC, and (3) having lower MSE. LEAPP does better under some scenarios in terms of estimating $\pi_0$ but has far worse AUC and MSE. SUCCOTASH accurately estimates the average sign error rate, though not in as conservative manner as one might hope in some scenarios. I also look at limma-shrinking the variances in RUVASH. It doesn't change the results too much. It seems to just make the estimates of $\pi_0$ slightly more conservative.
+
+
+# Simulation Setup
+I ran through 200 repetitions of generating data from GTEX muscle data under the following parameter conditions:
+
+* $n \in \{10, 20, 40\}$,
+* $p = 1000$.
+* $\pi_0 \in \{0.5, 0.9\}$,
+* The alternative distribution being either spiky, near-normal, flattop, skew, big-normal, or bimodal, where these are the same alternatives defined in @stephens2016false and the following table. New alternatives are generated every iteration.
+
+\begin{center}
+\begin{tabular}{ll}
+Scenario & Alternative Distribution \\
+\hline
+Spiky & $0.4N(0, 0.25^2) + 0.2N(0, 0.5^2) + 0.2N(0, 1^2), 0.2N(0, 2^2)$\\
+Near Normal & $2/3N(0, 1^2) + 1/3N(0, 2^2)$\\
+Flattop & $(1/7)N(-1.5, .5^2) + N(-1, .5^2) + N(-.5, .5^2)+N(0, .5^2) + N(0.5, .5^2) + N(1.0, .5^2) + N(1.5, .5^2)$\\
+Skew & $(1/4)N(-2, 2^2) + (1/4)N(-1, 1.5^2) + (1/3)N(0, 1^2) + (1/6)N(1, 1^2)$\\
+Big-normal & $N(0, 4^2)$\\
+Bimodal & $0.5N(-2, 1^2) + 0.5N(2, 1^2)$
+\end{tabular}
+\end{center}
+
+I extracted the most expressed $p$ genes from the GTEX muscle data and $n$ samples are chosen at
+random. Half of these samples are randomly given the "treatment"
+label 1, the other half given the "control" label 0. Of the $p$
+genes, $\pi_0p$ were chosen to be non-null. Signal was added by a
+Poisson-thinning approach, where the log-2 fold change was sampled from one of five the alternative models above.
+That is
+\begin{align}
+  A_1,\ldots,A_{p/2} &\sim f\\
+  B_i &= 2^{A_i} \text{ for } i = 1,\ldots, p/2,
+\end{align}
+where $f$ is from the table above. If $A_i > 0$ then we replace $Y_{[1:(n/2), i]}$ with $Binom(Y_{[j,i]}, 1 / B_i)$ for $j = 1,\ldots, n/2$. If $A_i < 0$ then we replace $Y_{[(n/2 + 1):n, i]}$ with $Binom(Y_{[j,i]}, B_i)$ for $j = n/2 + 1,\ldots, n$.
+
+I now describe the justification for this. Suppose that
+\begin{align}
+Y_{ij} \sim Poisson(\lambda_j).
+\end{align}
+Let $x_{i}$ be the indicator of treatment vs control for individual $i$. Let $\Omega$ be the set of non-null genes. Let $Z$ be the new dataset derived via the steps above. That is
+\begin{align}
+Z_{ij} | Y_{ij}=
+\begin{cases}
+Binom(Y_{ij}, 2 ^ {A_{j}x_i}) & \text{if } A_{j} < 0 \text{ and } j \in \Omega\\
+Binom(Y_{ij}, 2 ^ {-A_{j}(1 - x_i)}) & \text{if } A_{j} > 0 \text{ and } j \in \Omega\\
+Y_{ij} & \text{if } j \not\in \Omega.
+\end{cases}
+\end{align}
+Then
+\begin{align}
+Z_{ij} | A_{j}, A_{j} < 0, j \in \Omega &\sim Poisson(2^{A_{j}x_i}\lambda_j)\\
+Z_{ij} | A_{j}, A_{j} > 0, j \in \Omega &\sim Poisson(2^{-A_{j}(1 - x_i)}\lambda_j),
+\end{align}
+and
+\begin{align}
+E[\log_2(Z_{ij}) - \log_2(Z_{kj}) | A_{j}, A_{j} < 0, j \in \Omega] &\approx A_{j}x_i - A_{j}x_k, \text{ and}\\
+E[\log_2(Z_{ij}) - \log_2(Z_{kj}) | A_{j}, A_{j} > 0, j \in \Omega] &\approx -A_{j}(1 - x_i) + A_{j}(1 - x_k).
+\end{align}
+if individual $i$ is in the treatment group and individual $k$ is in the control group, then this just equals $A_j$. I treat the $A_j$'s as the true coefficient values when calculating the MSE below.
+
+# Methods
+I first normalized the counts by $\log_2(COUNTS + 1)$. The number of hidden confounders was estimated using the methods of @buja1992remarks implemented in the \texttt{num.sv()} function in the \texttt{sva} package in \texttt{R}.
+
+The confounder adjustment methods I look at in this write-up are:
+
+* OLS + qvalue.
+* RUVols + estimate variance inflation using controls + ASH
+* RUVgls + estimate variance inflation using controls + ASH
+* RUVgls + estimate variance inflation using controls + MLE to UMVUE motivated scaling + ASH
+* RUVgls + limma shrink variances + estimate variance inflation using conrols + MLE to UMVUE motivated scaling + ASH
+* SUCCOTASH using normal mixtures and heteroscedastic PCA as the factor-analysis method.
+* The robust regression version of CATE using PCA as the factor analysis method + qvalue.
+* SVA + qvalue.
+* Negative control version of CATE using PCA as the factor analysis method + qvalue.
+* RUV2 + qvalue.
+* RUV4 + qvalue.
+* Sparse version of LEAPP. Since this is a sparsity-inducing procedure, I used the proportion of zeros as the estimate of $\pi_0$.
+* Ridge version of LEAPP + qvalue.
+
+# RUVASH
+The model for the second step in RUV4, LEAPP, CATE, and SUCCOTASH is
+\begin{align}
+Y &= \beta_{p \times 1} + \hat{\alpha}_{p \times q}Z_{q \times 1} + E_{p \times 1}\\
+E &\sim N_p(0, \lambda\hat{\Sigma})\\
+\hat{\Sigma} &= diag(\hat{\sigma}_1^2,\ldots,\hat{\sigma}_p^2),
+\end{align}
+with $\hat{\Sigma}$ and $\hat{\alpha}$ known. $\lambda$ is a variance inflation parameter that is novel to SUCCOTASH.
+
+Let $\mathcal{C} \subseteq \{1,\ldots,p\}$ denote the indices for the negative controls. I.e. $\beta_{\mathcal{C}} = 0$. Then the model for the negative controls is
+\begin{align}
+Y_{\mathcal{C}} = \alpha_{\mathcal{C}}Z + E_{\mathcal{C}}.
+\end{align}
+The maximum likelihood estimates of $Z$ and $\lambda$ are easy:
+\begin{align}
+\hat{Z} = (\alpha_{\mathcal{C}}^T\hat{\Sigma}^{-1}\alpha_{\mathcal{C}})^{-1}\alpha_{\mathcal{C}}^T\hat{\Sigma}^{-1}Y_{\mathcal{C}}.
+\end{align}
+Let $R_{\mathcal{C}} = Y_{\mathcal{C}} - \hat{\alpha}_{\mathcal{C}}\hat{Z}$. Then the MLE of $\lambda$ is
+\begin{align}
+\hat{\lambda} = \frac{1}{|\mathcal{C}|}\sum_{i \in \mathcal{C}} R_{i}^2/\hat{\sigma}_i^2.
+\end{align}
+
+RUVASH runs ASH with means $\hat{\beta} = Y - \hat{\alpha}\hat{Z}$ and variances $\hat{\lambda}\hat{\sigma}_i^2$.
+
+In the same way that I made an ad-hoc correction to the SUCCOTASH variance inflation parameter, I also explore using this for RUVASH. Specifically, I set
+\begin{align}
+\tilde{\lambda} = \frac{n}{n - k - q} \hat{\lambda}
+\end{align}
+and run ASH with variances $\tilde{\lambda}\hat{\sigma}_i^2$. These are called SRUVASH in the plots below.
+
+
+
+# Results
+Note that in the plots below, $n$ refers to the size of each group, not the total size.
+
+## Estimates of $\pi_0$
+
+* RUV + ASH Works much better here than vanilla ASH at estimating $\pi_0$, but it is slightly anti-conservative.
+* RUV + ad-hoc scaling + ASH has conservative FDR with high probability in almost every scenario. The only one where it isn't conservative is the Bimodal alternative scenario.
+* SUCCOTASH has slightly anti-conservative estimates of $\pi_0$ in the Flattop and bimodal Scenarios. It does well for every other scenario for larger n.
+* LEAPP does amazingly well in the Big-normal and bimodal scenarios, even for $n = 10$. However, it is far too conservative in every other non-null scenario. This seems to indicate that LEAPP functions best if there is a separation of the alternative signal from zero.
+* No method using qvalue ever performed as well as succotash. Indeed, none exhibited this "conservative with high-probability" behavior that is desirable.
+* Limma-shrinking the variances results in slightly more conservative estimates of $\pi_0$.
+
+
+## AUC performance.
+
+* SUCCOTASH always has higher AUC, even in the bimodal and big-normal scenarios where LEAPP estimated $\pi_0$ more accurately.
+* All of the RUV + ASH methods have about the same AUC as SUCCOTASH --- including the one with the ad-hoc scaling value that works so well with estimating $\pi_0$.
+
+## MSE
+
+* SUCCOTASH has superior performance in term of MSE compared to other methods.
+* LEAPP has terrible MSE performance in all cases except the all-null setting.
+* Even then, SUCCOTASH has better performance.
+* RUV + ASH has pretty good MSE performance.
+* The ad-hoc scaling version of RUV + ASH seems to suffer in MSE a little bit, especially at low sample sizes.
+
+
+\clearpage
+
+
+```{r, cache = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(pROC)
+
+
+
+## pi0hat plots ------------------------------------------------------------------------
+load("../muscle_extensive/pi0hat_muscle.Rd")
+load("../muscle_extensive/method_vec.Rd")
+method_vec <- c(method_vec, "RUVASHOLS", "RUVASHGLS", "SRUVASHGLS", "LIMRUVASH")
+load("../muscle_extensive/pi0hat_muscle_ash.Rd")
+load("../muscle_extensive/pi0hat_muscle_ruvash.Rd")
+load("../muscle_extensive/pi0hat_muscle_sruvash.Rd")
+load("pi0hat_muscle_ruvash.Rd")
+
+
+for (index in 1:length(ash_pi0hat)) {
+    pi0hat[[index]] <- c(pi0hat[[index]], ash_pi0hat[[index]], ruvash_pi0hat[[index]],
+                         sruvash_pi0hat[[index]], ruvash_lim_pi0hat[[index]])
+}
+
+par_vals <- read.csv("../muscle_extensive/sim_settings.csv")
+
+nullpi_seq   <- unique(par_vals$nullpi)
+nsamp_seq    <- unique(par_vals$Nsamp)
+alt_type_seq <- unique(par_vals$alt_type)
+
+
+for (alt_type_index in 1:(length(alt_type_seq) - 1)) {
+    which_alt <- par_vals$alt_type == alt_type_seq[alt_type_index]
+
+    pi0mat <- as.data.frame(t(sapply(pi0hat[which_alt], FUN = c)))
+    names(pi0mat) <- method_vec
+    pi0mat$nullpi <- par_vals$nullpi[which_alt]
+    pi0mat$Nsamp  <- par_vals$Nsamp[which_alt]
+
+    ## pi0_plot
+    dummy_dat <- expand.grid(nullpi_seq[-length(nullpi_seq)], nsamp_seq)
+    colnames(dummy_dat) <- c("nullpi", "Nsamp")
+
+    name_vec <- colnames(pi0mat)
+    colnames(pi0mat) <- gsub("pi0hat_", "", x = name_vec)
+    long_dat <- melt(pi0mat, id.vars = c("nullpi", "Nsamp"),
+                     measure.vars = colnames(pi0mat)[1:(ncol(pi0mat) - 2)])
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab(expression(hat(pi)[0]))
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + geom_hline(data = dummy_dat, aes(yintercept = nullpi), lty = 2, color = "red", lwd = 1)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + ggtitle(paste("Estimates of pi0 When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index]))
+    print(p)
+}
+
+which_alt <- par_vals$alt_type == "all_null"
+pi0mat <- as.data.frame(t(sapply(pi0hat[which_alt], FUN = c)))
+names(pi0mat) <- method_vec
+pi0mat$nullpi <- par_vals$nullpi[which_alt]
+pi0mat$Nsamp  <- par_vals$Nsamp[which_alt]
+dummy_dat <- data.frame(Nsamp = nsamp_seq, nullpi = rep(1, length = length(nsamp_seq)))
+
+name_vec <- colnames(pi0mat)
+colnames(pi0mat) <- gsub("pi0hat_", "", x = name_vec)
+long_dat <- melt(pi0mat, id.vars = c("Nsamp"),
+                 measure.vars = colnames(pi0mat)[1:(ncol(pi0mat) - 2)])
+p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+p <- p + facet_grid(.~Nsamp) + ylab(expression(hat(pi)[0]))
+p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+p <- p + geom_hline(data = dummy_dat, aes(yintercept = nullpi), lty = 2, color = "red", lwd = 1)
+p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+p <- p + ggtitle("Estimates of pi0 When Using Muscle Tissue and All Null")
+print(p)
+```
+
+\clearpage
+
+```{r, cache = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(pROC)
+
+## AUC Boxplots ---------------------------------------------------------------------
+rm(list = ls())
+load("../muscle_extensive/lfdr_muscle.Rd")
+load("../muscle_extensive/lfdr_muscle_ash.Rd")
+load("../muscle_extensive/lfdr_muscle_ruvash.Rd")
+load("../muscle_extensive/lfdr_muscle_sruvash.Rd")
+load("lfdr_muscle_ruvash.Rd")
+
+for (index in 1:length(ash_lfdr)) {
+    lfdr[[index]]$RUVASHOLS <- ash_lfdr[[index]][,1]
+    lfdr[[index]]$RUVASHGLS <- ruvash_lfdr[[index]][,1]
+    lfdr[[index]]$SRUVASHGLS <- sruvash_lfdr[[index]][,1]
+    lfdr[[index]]$LIMRUVASH <- ruvash_lim_lfdr[[index]][,1]
+    lfdr[[index]] <- lfdr[[index]][, c(1:(ncol(lfdr[[index]]) - 5),
+                                       (ncol(lfdr[[index]]) - 3):ncol(lfdr[[index]]),
+                                       ncol(lfdr[[index]]) - 4)]
+}
+
+par_vals <- read.csv("../muscle_extensive/sim_settings.csv")
+
+get_auc <- function(lfdr_mat) {
+    null_col <- which(colnames(lfdr_mat) == "which_null")
+    auc_vec <- rep(NA, length = ncol(lfdr_mat) - 1)
+    for(index in (1:length(auc_vec))[-null_col]) {
+        if (all(is.na(lfdr_mat[, index]))) {
+            auc_vec[index] <- NA
+        } else {
+            auc_vec[index] <- roc(response = lfdr_mat$which_null,
+                                  predictor = c(lfdr_mat[, index]))$auc
+            }
+    }
+    return(auc_vec)
+}
+
+## which_allnull <- par_vals$alt_type == "all_null"
+## auc_mat <- as.data.frame(t(sapply(lfdr[!which_allnull], FUN = get_auc)))
+## names(auc_mat) <- colnames(lfdr[[1]])[1:(ncol(lfdr[[1]]) - 1)]
+## auc_mat$nullpi   <- par_vals$nullpi[!which_allnull]
+## auc_mat$Nsamp    <- par_vals$Nsamp[!which_allnull]
+## auc_mat$alt_type <- par_vals$alt_type[!which_allnull]
+## write.csv(auc_mat, file = "auc_mat.csv", row.names = FALSE)
+
+auc_mat <- read.csv("../muscle_extensive/auc_mat.csv")
+alt_type_seq <- unique(auc_mat$alt_type)
+
+
+for (alt_type_index in 1:length(alt_type_seq)) {
+    current_alt_type <- alt_type_seq[alt_type_index]
+
+    auc_mat_sub <- auc_mat[auc_mat$alt_type == current_alt_type,]
+    auc_mat_sub <- dplyr::select(auc_mat_sub, -alt_type)
+
+
+    ## create dummy dat to plot max median auc
+    nullpi_seq <- unique(auc_mat_sub$nullpi)
+    nsamp_seq <- unique(auc_mat_sub$Nsamp)
+    dummy_dat <- expand.grid(nullpi_seq, nsamp_seq)
+    colnames(dummy_dat) <- c("nullpi", "Nsamp")
+    med_mat <- matrix(NA, nrow = length(nullpi_seq) * length(nsamp_seq), ncol = ncol(auc_mat_sub) - 3)
+    for (index in 1:(ncol(auc_mat_sub) - 3)) {
+        form1 <- as.formula(paste(colnames(auc_mat_sub)[index], "~ nullpi + Nsamp"))
+        out1 <- aggregate(form1, FUN = median, na.rm = TRUE,
+                          data = auc_mat_sub)
+        med_mat[, index] <- out1[, 3]
+    }
+    dummy_dat2 <- cbind(expand.grid(nullpi_seq[nullpi_seq != 1], nsamp_seq), apply(med_mat, 1, max))
+    colnames(dummy_dat2) <- c("nullpi", "Nsamp", "max_med")
+    ## end dummy dat
+
+
+    long_dat <- melt(auc_mat_sub, id.vars = c("nullpi", "Nsamp"))
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("AUC")
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + geom_hline(data = dummy_dat2, aes(yintercept = max_med), lty = 2,
+                        color = "red", lwd = 0.6)
+    p <- p + ggtitle(paste("AUC When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index]))
+    print(p)
+}
+```
+
+\clearpage
+
+```{r, cache = TRUE, echo = FALSE, warning = FALSE, message = FALSE}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(pROC)
+
+rm(list = ls())
+load("../muscle_extensive/betahat_muscle.Rd")
+load("../muscle_extensive/betahat_muscle_ash.Rd")
+load("../muscle_extensive/betahat_muscle_ruvash.Rd")
+load("../muscle_extensive/betahat_muscle_sruvash.Rd")
+load("betahat_muscle_ruvash.Rd")
+par_vals <- read.csv("../muscle_extensive/sim_settings.csv")
+
+for (index in 1:length(ash_betahat)) {
+    betahat[[index]]$RUVASHOLS <- ash_betahat[[index]][,1]
+    betahat[[index]]$RUVASHGLS <- ruvash_betahat[[index]][,1]
+    betahat[[index]]$SRUVASHGLS <- sruvash_betahat[[index]][,1]
+    betahat[[index]]$LIMRUVASH <- ruvash_lim_betahat[[index]][, 1]
+    betahat[[index]] <- betahat[[index]][, c(1:(ncol(betahat[[index]]) - 5),
+                               (ncol(betahat[[index]]) - 3):ncol(betahat[[index]]),
+                               ncol(betahat[[index]]) - 4)]
+}
+
+
+get_mse <- function(beta_mat) {
+    which_betatrue <- which(colnames(beta_mat) == "beta_true")
+    return(colMeans((beta_mat$beta_true - beta_mat[, -which_betatrue]) ^ 2))
+}
+
+mse_mat          <- as.data.frame(t(sapply(betahat, get_mse)))
+colnames(mse_mat) <- colnames(betahat[[1]])[1:(length(betahat[[1]]) - 1)]
+mse_mat$nullpi   <- par_vals$nullpi
+mse_mat$Nsamp    <- par_vals$Nsamp
+mse_mat$alt_type <- par_vals$alt_type
+alt_type_seq     <- unique(mse_mat$alt_type)
+
+for (alt_type_index in 1:length(alt_type_seq)) {
+    current_alt_type <- alt_type_seq[alt_type_index]
+
+    mse_mat_sub <- mse_mat[mse_mat$alt_type == current_alt_type,]
+    ymax <- quantile(c(as.matrix(dplyr::select(mse_mat_sub, -c(nullpi, Nsamp, alt_type)))),
+             0.999, na.rm = TRUE)
+    mse_mat_sub <- dplyr::select(mse_mat_sub, -alt_type)
+    long_dat <- melt(mse_mat_sub, id.vars = c("nullpi", "Nsamp"))
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("MSE")
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + ggtitle(paste("MSE When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index])) +
+        ylim(0, ymax)
+    print(p)
+}
+
+```
+
+\clearpage
+
+# MSE without LEAPP
+
+```{r, echo = FALSE, cache = TRUE, warning = FALSE, message = FALSE}
+
+mse_mat <- dplyr::select(mse_mat, -c(leapp_sparse, leapp_ridge))
+for (alt_type_index in 1:length(alt_type_seq)) {
+    current_alt_type <- alt_type_seq[alt_type_index]
+
+    mse_mat_sub <- mse_mat[mse_mat$alt_type == current_alt_type,]
+    mse_mat_sub <- dplyr::select(mse_mat_sub, -alt_type)
+    long_dat <- melt(mse_mat_sub, id.vars = c("nullpi", "Nsamp"))
+    p <- ggplot(data = long_dat, mapping = aes(x = variable, y = value, fill = variable))
+    p <- p + facet_grid(nullpi~Nsamp) + ylab("MSE")
+    p <- p + geom_boxplot(size = 0.4, outlier.size = 0.4)
+    p <- p + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+    p <- p + ggtitle(paste("MSE When Using Muscle Tissue, Alternative =",
+                           alt_type_seq[alt_type_index]))
+    print(p)
+}
+```
+
+
+```{r}
+sessionInfo()
+```

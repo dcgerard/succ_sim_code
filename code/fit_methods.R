@@ -162,26 +162,26 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
 
     ## LEAPP Ridge--------------------------------------------------------
     ## Sometimes gives p-values that are all exactly zero and throws an error.
-    trash <- tryCatch({
-        leapp_ridge <- leapp::leapp(dat = t(Y), pred.prim = X[, ofinterest],
-                                    pred.covar = X[, -ofinterest],
-                                    num.fac = num_sv, method = "hard", sparse = FALSE)
-        leapp_ridge_out         <- list()
-        leapp_ridge_out$betahat <- leapp_ridge$gamma
-        leapp_ridge_out$pvalue  <- leapp_ridge$p
-        leapp_ridge_qv          <- fit_freq_methods(out_obj = leapp_ridge_out)
+    ## trash <- tryCatch({
+    ##     leapp_ridge <- leapp::leapp(dat = t(Y), pred.prim = X[, ofinterest],
+    ##                                 pred.covar = X[, -ofinterest],
+    ##                                 num.fac = num_sv, method = "hard", sparse = FALSE)
+    ##     leapp_ridge_out         <- list()
+    ##     leapp_ridge_out$betahat <- leapp_ridge$gamma
+    ##     leapp_ridge_out$pvalue  <- leapp_ridge$p
+    ##     leapp_ridge_qv          <- fit_freq_methods(out_obj = leapp_ridge_out)
 
-        betahat_df$leapp_ridge <- leapp_ridge_out$betahat
-        lfdr_df$leapp_ridge    <- leapp_ridge_qv$q_storey$lfdr
-        pi0hat_vec             <- c(pi0hat_vec, leapp_ridge_qv$q_storey$pi0)
-        TRUE
-    },
-    error = function(e){NULL})
-    if(is.null(trash)) {
-        betahat_df$leapp_ridge <- rep(NA, length = ncol(Y))
-        lfdr_df$leapp_ridge    <- rep(NA, length = ncol(Y))
-        pi0hat_vec             <- c(pi0hat_vec, NA)
-    }
+    ##     betahat_df$leapp_ridge <- leapp_ridge_out$betahat
+    ##     lfdr_df$leapp_ridge    <- leapp_ridge_qv$q_storey$lfdr
+    ##     pi0hat_vec             <- c(pi0hat_vec, leapp_ridge_qv$q_storey$pi0)
+    ##     TRUE
+    ## },
+    ## error = function(e){NULL})
+    ## if(is.null(trash)) {
+    ##     betahat_df$leapp_ridge <- rep(NA, length = ncol(Y))
+    ##     lfdr_df$leapp_ridge    <- rep(NA, length = ncol(Y))
+    ##     pi0hat_vec             <- c(pi0hat_vec, NA)
+    ## }
 
 
     trash <- tryCatch({
@@ -204,13 +204,46 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
     }
     trash <- TRUE
 
+
+    ashsva_out             <- ashr::ash_sva_mad(Y = Y, X = X, k = num_sv, limmashrink = TRUE)
+    betahat_df$ash_sva_mad <- ashsva_out$PosteriorMean
+    lfdr_df$ash_sva_mad    <- ashsva_out$lfdr
+    pi0hat_vec             <- c(pi0hat_vec, ashsva_out$fitted.g$pi[1])
+
+    vlema_out        <- ashr::vlema(Y = 2 ^ Y - 1, X = X)
+    betahat_df$vlema <- vlema_out$PosteriorMean
+    lfdr_df$vlema    <- vlema_out$lfdr
+    pi0hat_vec       <- c(pi0hat_vec, vlema_out$fitted.g$pi[1])
+
     ## Negative control methods--------------------------------------------
     if (!is.null(control_genes)) {
 
-        ruvash_out <- ashr::ash_ruv(Y = Y, X = X, k = num_sv, ctl = as.logical(control_genes))
+        ## RUVASH ---------------------------------------------------------
+        ruvash_out <- ashr::ash_ruv(Y = Y, X = X, k = num_sv, ctl = as.logical(control_genes),
+                                    limmashrink = TRUE)
         betahat_df$ruvash <- ruvash_out$PosteriorMean
         lfdr_df$ruvash <- ruvash_out$lfdr
         pi0hat_vec <- c(pi0hat_vec, ruvash_out$fitted.g$pi[1])
+
+        ## Inflated RUV4 with GLS ----------------------------------------
+        qruv4inflate            <- qvalue::qvalue(p = ruvash_out$ruv$pvalues)
+        betahat_df$ruv4_inflate <- ruvash_out$ruv$betahat
+        lfdr_df$ruv4_inflate    <- qruv4inflate$lfdr
+        pi0hat_vec              <- c(pi0hat_vec, qruv4inflate$pi0)
+
+        ashruv4_out             <- ashr::ash_ruv_mad(Y = Y, X = X, k = num_sv, limmashrink = TRUE,
+                                                     ctl = as.logical(control_genes),
+                                                     ruv_type = "ruv4")
+        betahat_df$ash_ruv4_mad <- ashruv4_out$PosteriorMean
+        lfdr_df$ash_ruv4_mad    <- ashruv4_out$lfdr
+        pi0hat_vec              <- c(pi0hat_vec, ashruv4_out$fitted.g$pi[1])
+
+        ashruv2_out             <- ashr::ash_ruv_mad(Y = Y, X = X, k = num_sv, limmashrink = TRUE,
+                                                     ctl = as.logical(control_genes),
+                                                     ruv_type = "ruv2")
+        betahat_df$ash_ruv2_mad <- ashruv2_out$PosteriorMean
+        lfdr_df$ash_ruv2_mad    <- ashruv2_out$lfdr
+        pi0hat_vec              <- c(pi0hat_vec, ashruv2_out$fitted.g$pi[1])
 
 
         trash <- tryCatch({
@@ -297,6 +330,13 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
             betahat_df$ruv4 <- ruv_ruv4_list$betahat
             lfdr_df$ruv4    <- ruv4_qv$q_storey$lfdr
             pi0hat_vec      <- c(pi0hat_vec, ruv4_qv$q_storey$pi0)
+
+            ## RUV4 + ASH -------------------------------------------------
+            ruv4sebetahat <- sqrt(ruv_ruv4$sigma2 * ruv_ruv4$multiplier)
+            ashr_ruv4_out <- ashr::ash(betahat = ruv_ruv4$betahat, ruv4sebetahat)
+            betahat_df$ruv4ThenAsh <- ashr_ruv4_out$PosteriorMean
+            lfdr_df$ruv4ThenAsh <- ashr_ruv4_out$lfdr
+            pi0hat_vec <- c(pi0hat_vec, ashr_ruv4_out$fitted.g$pi[1])
             TRUE
         },
         error = function(e){NULL})
@@ -304,6 +344,10 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
             betahat_df$ruv4 <- rep(NA, length = ncol(Y))
             lfdr_df$ruv4    <- rep(NA, length = ncol(Y))
             pi0hat_vec      <- c(pi0hat_vec, NA)
+
+            betahat_df$ruv4ThenAsh <- rep(NA, length = ncol(Y))
+            lfdr_df$ruv4ThenAsh    <- rep(NA, length = ncol(Y))
+            pi0hat_vec             <- c(pi0hat_vec, NA)
         }
         trash <- TRUE
     }
