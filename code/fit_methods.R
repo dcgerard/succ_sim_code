@@ -57,26 +57,26 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
 
 
 
-    trash <- tryCatch({
-        ## succotash---------------------------------------------------------
-        succ_out <- succotashr::succotash(Y = Y, X = X, k = num_sv,
-                                          fa_method = "pca", num_em_runs = 3,
-                                          optmethod = "em")
+    ## trash <- tryCatch({
+    ##     ## succotash---------------------------------------------------------
+    ##     succ_out <- succotashr::succotash(Y = Y, X = X, k = num_sv,
+    ##                                       fa_method = "pca", num_em_runs = 3,
+    ##                                       optmethod = "em")
 
-        betahat_df$succotash <- succ_out$betahat
-        lfdr_df$succotash    <- succ_out$lfdr
-        pi0hat_vec           <- c(pi0hat_vec, succ_out$pi0)
-        succ_lfsr            <- data.frame(normal = succ_out$lfsr)
-        TRUE
-    },
-    error = function(e){NULL})
-    if (is.null(trash)) {
-        betahat_df$succotash <- rep(NA, length = ncol(Y))
-        lfdr_df$succotash    <- rep(NA, length = ncol(Y))
-        pi0hat_vec           <- c(pi0hat_vec, NA)
-        succ_lfsr            <- data.frame(normal = rep(NA, length = ncol(Y)))
-    }
-    trash <- TRUE
+    ##     betahat_df$succotash <- succ_out$betahat
+    ##     lfdr_df$succotash    <- succ_out$lfdr
+    ##     pi0hat_vec           <- c(pi0hat_vec, succ_out$pi0)
+    ##     succ_lfsr            <- data.frame(normal = succ_out$lfsr)
+    ##     TRUE
+    ## },
+    ## error = function(e){NULL})
+    ## if (is.null(trash)) {
+    ##     betahat_df$succotash <- rep(NA, length = ncol(Y))
+    ##     lfdr_df$succotash    <- rep(NA, length = ncol(Y))
+    ##     pi0hat_vec           <- c(pi0hat_vec, NA)
+    ##     succ_lfsr            <- data.frame(normal = rep(NA, length = ncol(Y)))
+    ## }
+    ## trash <- TRUE
 
     ## succotash-t---------------------------------------------------------
     ## succ_out_t <- succotashr::succotash(Y = Y, X = X, k = num_sv,
@@ -352,5 +352,5 @@ fit_all_competitors <- function(Y, X, num_sv, ofinterest = ncol(X), control_gene
         trash <- TRUE
     }
 
-    return(list(betahat_df = betahat_df, lfdr_df = lfdr_df, pi0hat_vec = pi0hat_vec, succ_lfsr = succ_lfsr))
+    return(list(betahat_df = betahat_df, lfdr_df = lfdr_df, pi0hat_vec = pi0hat_vec))
 }
